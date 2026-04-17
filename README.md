@@ -1,140 +1,140 @@
-# Inferencia Bayesiana en el Modelo de Ising 2D
+# Bayesian Inference on the 2D Ising Model
 
-Pipeline que **infiere los parámetros críticos del modelo de Ising 2D** — la temperatura crítica `Tc` y el exponente crítico `β` — a partir de datos simulados con Monte Carlo, usando inferencia bayesiana vía PyMC. El resultado se valida cuantitativamente contra la solución exacta de Onsager (1944).
+An end-to-end pipeline that **infers the critical parameters of the 2D Ising model** — the critical temperature `Tc` and the critical exponent `β` — from data simulated with Monte Carlo, using Bayesian inference via PyMC. Results are quantitatively validated against Onsager's exact (1944) solution.
 
-El proyecto combina tres cosas que raramente aparecen juntas en un portafolio de ML junior: **física estadística real**, **estadística bayesiana aplicada** y **código Python científico ejecutable de extremo a extremo**.
+This project brings together three things rarely seen together in a junior ML portfolio: **real statistical physics**, **applied Bayesian statistics**, and **end-to-end scientific Python code**.
 
 ---
 
-## Componentes
+## Components
 
-### 1 · Simulador Metropolis del modelo de Ising 2D
+### 1 · Metropolis simulator of the 2D Ising model
 
-Implementación desde cero del algoritmo de Metropolis-Hastings para muestrear configuraciones del ensemble canónico de una red cuadrada de spines ±1 con condiciones de frontera periódicas.
+From-scratch implementation of the Metropolis-Hastings algorithm to sample configurations from the canonical ensemble of a square lattice of ±1 spins with periodic boundary conditions.
 
-- Regla de aceptación basada en la diferencia de energía local ΔE al voltear un spin, con probabilidad `min(1, exp(−ΔE/T))`.
-- Cada barrido hace N² intentos de flip — uno por cada sitio en promedio.
-- Kernel caliente decorado con `@numba.njit(cache=True)` para obtener un speedup de ~50× sobre NumPy puro, con fallback transparente a Python puro si Numba no está instalado.
-- Observable medido: `<|M|> = <|(1/N²) · Σ sᵢⱼ|>`. Valor absoluto porque a baja T el sistema puede romper simetría hacia +1 o −1 indistintamente.
+- Acceptance rule based on the local energy change ΔE when flipping a spin, with probability `min(1, exp(−ΔE/T))`.
+- Each sweep performs N² flip attempts — one per site on average.
+- The hot kernel is decorated with `@numba.njit(cache=True)`, yielding a ~50× speedup over pure NumPy. A transparent fallback to pure Python is available if Numba is not installed.
+- Observable measured: `<|M|> = <|(1/N²) · Σ sᵢⱼ|>`. Absolute value because at low T the system may spontaneously break symmetry toward +1 or −1 indistinguishably.
 
-Archivo: [`src/metropolis.py`](src/metropolis.py).
+File: [`src/metropolis.py`](src/metropolis.py).
 
-### 2 · Barrido de temperaturas y generación del dataset
+### 2 · Temperature sweep and dataset generation
 
-Barrido de 30 temperaturas en el rango `T ∈ [1.5, 3.5]` (en unidades de `J/k_B`), cubriendo con margen la temperatura crítica teórica. En cada temperatura: 2000 barridos de termalización y 3000 barridos de medición, registrando media y desviación estándar de `<|M|>`.
+Sweep over 30 temperatures in the range `T ∈ [1.5, 3.5]` (units of `J/k_B`), amply covering the theoretical critical temperature. For each T: 2000 thermalization sweeps + 3000 measurement sweeps, recording mean and standard deviation of `<|M|>`.
 
-Output: CSV con columnas `T, M_mean, M_std` que actúa como dataset para la fase de inferencia.
+Output: a CSV with columns `T, M_mean, M_std` acting as the dataset for the inference phase.
 
-### 3 · Modelo probabilístico en PyMC
+### 3 · Probabilistic model in PyMC
 
-Cerca de la transición de fase, la magnetización sigue una ley de potencias:
+Near the phase transition, the magnetization follows a power law:
 
 ```
-M(T) ≈ (1 − T/Tc)^β     si T < Tc
-M(T) = 0                si T ≥ Tc
+M(T) ≈ (1 − T/Tc)^β     if T < Tc
+M(T) = 0                if T ≥ Tc
 ```
 
-Modelo bayesiano en PyMC:
+Bayesian model in PyMC:
 
-| Parámetro | Prior | Justificación |
+| Parameter | Prior | Justification |
 |---|---|---|
-| `Tc` | `Normal(μ=2.3, σ=0.3)` | centrado cerca del valor de Onsager con incertidumbre amplia |
-| `β` | `Normal(μ=0.12, σ=0.05)` | centrado cerca del valor exacto 1/8 |
-| `σ` | `HalfNormal(0.1)` | ruido de observación positivo |
+| `Tc` | `Normal(μ=2.3, σ=0.3)` | centered near Onsager's value with wide uncertainty |
+| `β` | `Normal(μ=0.12, σ=0.05)` | centered near the exact value 1/8 |
+| `σ` | `HalfNormal(0.1)` | positive observation noise |
 
-El likelihood es gaussiano sobre la magnetización observada, con la predicción del modelo teórico como media.
+Gaussian likelihood on the observed magnetization, with the theoretical model prediction as the mean.
 
-Archivo: [`src/bayesian.py`](src/bayesian.py).
+File: [`src/bayesian.py`](src/bayesian.py).
 
-### 4 · Muestreo MCMC (NUTS) y diagnóstico
+### 4 · MCMC sampling (NUTS) and diagnostics
 
-NUTS (No-U-Turn Sampler) con 4 cadenas, 2000 muestras + 1000 de tuning y `target_accept=0.9`. La convergencia se evalúa con:
+NUTS (No-U-Turn Sampler) with 4 chains, 2000 samples + 1000 tuning, `target_accept=0.9`. Convergence is assessed via:
 
-- **R̂ (Gelman-Rubin)** — objetivo: `R̂ < 1.01` en todos los parámetros.
-- **ESS (Effective Sample Size)** — muestras efectivamente independientes.
-- **Trace plots** — sin deriva ni patrones visibles.
+- **R̂ (Gelman-Rubin)** — target: `R̂ < 1.01` for all parameters.
+- **ESS (Effective Sample Size)** — effectively independent samples.
+- **Trace plots** — no drift, no visible patterns.
 
-### 5 · Validación contra Onsager
+### 5 · Validation against Onsager
 
-La solución exacta del modelo de Ising 2D (Onsager, 1944) da:
+The exact solution of the 2D Ising model (Onsager, 1944) gives:
 
 - `Tc = 2 / ln(1 + √2) ≈ 2.26919`
 - `β = 1/8 = 0.125`
 
-Estos valores se superponen sobre las distribuciones posteriores como líneas de referencia. Es la validación más fuerte posible: un resultado analítico exacto contra el cual comparar una inferencia numérica.
+These values are overlaid on the posterior distributions as reference lines. It is the strongest possible validation: numerical inference compared against a 1944 exact analytical result.
 
-### 6 · Figuras finales
+### 6 · Final figures
 
-`src/plots.py` genera tres figuras para el README:
+`src/plots.py` generates three figures for the README:
 
-1. **Curva M(T)** con barras de error y línea vertical en Tc de Onsager → se observa la transición de fase.
-2. **Posteriores marginales** de Tc y β con los valores exactos superpuestos.
-3. **Trace plots** para verificación visual de la convergencia del MCMC.
+1. **M(T) curve** with error bars and a vertical line at Onsager's Tc → the phase transition is visible.
+2. **Marginal posteriors** of Tc and β with exact values overlaid.
+3. **Trace plots** for visual verification of MCMC convergence.
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```
 01-ising-bayesian/
 ├── README.md
 ├── requirements.txt
-├── main.py                      # pipeline completo end-to-end
+├── main.py                      # end-to-end pipeline
 ├── src/
 │   ├── __init__.py
-│   ├── metropolis.py            # simulador Metropolis (Numba-accelerated)
-│   ├── bayesian.py              # modelo PyMC + MCMC + summary
-│   └── plots.py                 # M(T), posteriores, trace plots
-├── data/                        # (gitignored) CSV + NetCDF generados
-└── results/                     # (gitignored) figuras PNG
+│   ├── metropolis.py            # Numba-accelerated Metropolis simulator
+│   ├── bayesian.py              # PyMC model + MCMC + summary
+│   └── plots.py                 # M(T), posteriors, trace plots
+├── data/                        # (gitignored) generated CSV + NetCDF
+└── results/                     # (gitignored) PNG figures
 ```
 
 ---
 
-## Cómo reproducir
+## How to reproduce
 
 ```bash
 pip install -r requirements.txt
 
-# opción A: pipeline completo
+# option A: full pipeline
 python main.py
 
-# opción B: paso a paso
+# option B: step by step
 python -m src.metropolis --out data/magnetization.csv --n-temps 30
 python -m src.bayesian   --input data/magnetization.csv --output data/trace.nc
 python -m src.plots      --csv data/magnetization.csv --trace data/trace.nc --out-dir results
 ```
 
-Tiempo de ejecución en una laptop moderna:
+Typical runtime on a modern laptop:
 
-- Simulación: ~2–4 min (con Numba).
-- Inferencia MCMC: ~30–60 s.
-- Figuras: &lt;5 s.
-
----
-
-## Resultados esperados
-
-- `Tc` inferido ≈ 2.27 ± 0.04 (valor exacto: 2.2692).
-- `β` inferido ≈ 0.125 ± 0.02 (valor exacto: 0.125).
-- Diagnósticos: `R̂ < 1.01`, `ESS > 400` para todos los parámetros.
-
-Los PNGs finales quedan en `results/` listos para embedding en el README.
+- Simulation: ~2–4 min (with Numba).
+- MCMC inference: ~30–60 s.
+- Figures: &lt;5 s.
 
 ---
 
-## Stack técnico
+## Expected results
+
+- Inferred `Tc` ≈ 2.27 ± 0.04 (exact: 2.2692).
+- Inferred `β` ≈ 0.125 ± 0.02 (exact: 0.125).
+- Diagnostics: `R̂ < 1.01`, `ESS > 400` for all parameters.
+
+Final PNGs land in `results/` ready to embed in this README.
+
+---
+
+## Tech stack
 
 - **Python** 3.11+
-- **NumPy** para operaciones vectorizadas sobre la red.
-- **Numba** (`@njit(cache=True)`) para acelerar el kernel de Metropolis.
-- **PyMC 5** para definir el modelo probabilístico y samplear con NUTS.
-- **ArviZ** para diagnósticos MCMC (R̂, ESS, trace plots).
-- **Matplotlib** para las figuras finales.
+- **NumPy** for vectorized lattice operations.
+- **Numba** (`@njit(cache=True)`) to accelerate the Metropolis kernel.
+- **PyMC 5** to define the probabilistic model and sample with NUTS.
+- **ArviZ** for MCMC diagnostics (R̂, ESS, trace plots).
+- **Matplotlib** for final figures.
 
 ---
 
-## Referencias
+## References
 
 - Onsager, L. (1944). *Crystal Statistics. I. A Two-Dimensional Model with an Order-Disorder Transition*. Physical Review, 65(3–4), 117.
 - Metropolis, N., Rosenbluth, A. W., Rosenbluth, M. N., Teller, A. H., & Teller, E. (1953). *Equation of State Calculations by Fast Computing Machines*. The Journal of Chemical Physics, 21(6), 1087.
