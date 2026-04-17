@@ -1,29 +1,29 @@
 # Inferencia Bayesiana en el Modelo de Ising 2D
 
-En este proyecto construyo un pipeline completo que **infiere los parámetros críticos del modelo de Ising 2D** — la temperatura crítica `Tc` y el exponente crítico `β` — a partir de datos simulados con Monte Carlo, usando inferencia bayesiana vía PyMC. El resultado se valida cuantitativamente contra la solución exacta de Onsager (1944).
+Pipeline que **infiere los parámetros críticos del modelo de Ising 2D** — la temperatura crítica `Tc` y el exponente crítico `β` — a partir de datos simulados con Monte Carlo, usando inferencia bayesiana vía PyMC. El resultado se valida cuantitativamente contra la solución exacta de Onsager (1944).
 
-La motivación es clara: quería unir en un solo proyecto tres cosas que raramente aparecen juntas en un CV de ML junior — **física estadística real**, **estadística bayesiana aplicada** y **código Python científico ejecutable de extremo a extremo**.
+El proyecto combina tres cosas que raramente aparecen juntas en un portafolio de ML junior: **física estadística real**, **estadística bayesiana aplicada** y **código Python científico ejecutable de extremo a extremo**.
 
 ---
 
-## Qué implementé
+## Componentes
 
 ### 1 · Simulador Metropolis del modelo de Ising 2D
 
-Implementé desde cero el algoritmo de Metropolis-Hastings para muestrear configuraciones del ensemble canónico de una red cuadrada de spines ±1 con condiciones de frontera periódicas.
+Implementación desde cero del algoritmo de Metropolis-Hastings para muestrear configuraciones del ensemble canónico de una red cuadrada de spines ±1 con condiciones de frontera periódicas.
 
-- La regla de aceptación usa la diferencia de energía local ΔE al voltear un spin, con probabilidad `min(1, exp(−ΔE/T))`.
+- Regla de aceptación basada en la diferencia de energía local ΔE al voltear un spin, con probabilidad `min(1, exp(−ΔE/T))`.
 - Cada barrido hace N² intentos de flip — uno por cada sitio en promedio.
-- El kernel caliente está decorado con `@numba.njit(cache=True)` para obtener un speedup de ~50× sobre NumPy puro. Si Numba no está disponible, el código hace fallback transparente a Python puro.
-- La magnetización observable que mido es `<|M|> = <|(1/N²) · Σ sᵢⱼ|>` — el valor absoluto porque a baja T el sistema puede romper simetría hacia +1 o −1 indistintamente.
+- Kernel caliente decorado con `@numba.njit(cache=True)` para obtener un speedup de ~50× sobre NumPy puro, con fallback transparente a Python puro si Numba no está instalado.
+- Observable medido: `<|M|> = <|(1/N²) · Σ sᵢⱼ|>`. Valor absoluto porque a baja T el sistema puede romper simetría hacia +1 o −1 indistintamente.
 
 Archivo: [`src/metropolis.py`](src/metropolis.py).
 
 ### 2 · Barrido de temperaturas y generación del dataset
 
-Barro 30 temperaturas en el rango `T ∈ [1.5, 3.5]` (en unidades de `J/k_B`), cubriendo con margen la temperatura crítica teórica. Para cada temperatura termalizo el sistema durante 2000 barridos y luego mido durante 3000 barridos más. Registro la media y la desviación estándar de `<|M|>` en cada punto.
+Barrido de 30 temperaturas en el rango `T ∈ [1.5, 3.5]` (en unidades de `J/k_B`), cubriendo con margen la temperatura crítica teórica. En cada temperatura: 2000 barridos de termalización y 3000 barridos de medición, registrando media y desviación estándar de `<|M|>`.
 
-El resultado es un CSV con columnas `T, M_mean, M_std` que sirve como "dataset" para la fase de inferencia.
+Output: CSV con columnas `T, M_mean, M_std` que actúa como dataset para la fase de inferencia.
 
 ### 3 · Modelo probabilístico en PyMC
 
@@ -34,7 +34,7 @@ M(T) ≈ (1 − T/Tc)^β     si T < Tc
 M(T) = 0                si T ≥ Tc
 ```
 
-Planteé el siguiente modelo bayesiano en PyMC:
+Modelo bayesiano en PyMC:
 
 | Parámetro | Prior | Justificación |
 |---|---|---|
@@ -48,11 +48,11 @@ Archivo: [`src/bayesian.py`](src/bayesian.py).
 
 ### 4 · Muestreo MCMC (NUTS) y diagnóstico
 
-Uso NUTS (No-U-Turn Sampler) con 4 cadenas, 2000 muestras + 1000 de tuning y `target_accept=0.9`. Reviso la convergencia mediante:
+NUTS (No-U-Turn Sampler) con 4 cadenas, 2000 muestras + 1000 de tuning y `target_accept=0.9`. La convergencia se evalúa con:
 
-- **R̂ (Gelman-Rubin)** — espero `R̂ < 1.01` en todos los parámetros.
+- **R̂ (Gelman-Rubin)** — objetivo: `R̂ < 1.01` en todos los parámetros.
 - **ESS (Effective Sample Size)** — muestras efectivamente independientes.
-- **Trace plots** — no debe haber deriva ni patrones visibles.
+- **Trace plots** — sin deriva ni patrones visibles.
 
 ### 5 · Validación contra Onsager
 
@@ -67,9 +67,9 @@ Estos valores se superponen sobre las distribuciones posteriores como líneas de
 
 `src/plots.py` genera tres figuras para el README:
 
-1. **Curva M(T)** con barras de error y línea vertical en Tc de Onsager → se ve la transición de fase.
+1. **Curva M(T)** con barras de error y línea vertical en Tc de Onsager → se observa la transición de fase.
 2. **Posteriores marginales** de Tc y β con los valores exactos superpuestos.
-3. **Trace plots** para que cualquier reviewer pueda verificar la convergencia del MCMC.
+3. **Trace plots** para verificación visual de la convergencia del MCMC.
 
 ---
 
@@ -91,7 +91,7 @@ Estos valores se superponen sobre las distribuciones posteriores como líneas de
 
 ---
 
-## Cómo reproducir los resultados
+## Cómo reproducir
 
 ```bash
 pip install -r requirements.txt
@@ -119,7 +119,7 @@ Tiempo de ejecución en una laptop moderna:
 - `β` inferido ≈ 0.125 ± 0.02 (valor exacto: 0.125).
 - Diagnósticos: `R̂ < 1.01`, `ESS > 400` para todos los parámetros.
 
-Cuando corra el pipeline, los PNGs quedan en `results/` y se pueden insertar directamente en este README.
+Los PNGs finales quedan en `results/` listos para embedding en el README.
 
 ---
 
