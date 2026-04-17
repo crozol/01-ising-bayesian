@@ -18,32 +18,40 @@ ONSAGER_TC = 2.0 / np.log(1.0 + np.sqrt(2.0))
 EXACT_BETA = 0.125
 
 
-def _ising_power_law(T, Tc, beta):
-    """Physical model: M(T) = (1 − T/Tc)^β  for T<Tc, else 0."""
-    x = np.clip(1.0 - T / Tc, 1e-10, 1.0)
-    return np.where(T < Tc, x**beta, 0.0)
+def _smoothed_mag(T, A, Tc, w, c):
+    """Empirical finite-size magnetization:
+
+        M(T) = A/2 · [1 − tanh((T − Tc)/w)] + c
+
+    Captures both the ordered plateau at low T and the finite-size tail above Tc
+    that the clean power law cannot. A/Tc/w/c are all learned from the data.
+    """
+    return A * 0.5 * (1.0 - np.tanh((T - Tc) / w)) + c
 
 
-def _fit_ising(T: np.ndarray, M: np.ndarray, S: np.ndarray) -> dict:
-    """Nonlinear least squares fit of the Ising power-law to the data."""
+def _fit_smoothed(T: np.ndarray, M: np.ndarray, S: np.ndarray) -> dict:
+    """Weighted nonlinear least squares fit of the sigmoid model."""
     popt, pcov = curve_fit(
-        _ising_power_law, T, M,
-        p0=[2.4, 0.15],
+        _smoothed_mag, T, M,
+        p0=[0.95, 2.42, 0.1, 0.05],
         sigma=S,
         absolute_sigma=False,
-        bounds=([1.5, 0.01], [3.5, 1.0]),
-        maxfev=5000,
+        bounds=([0.1, 1.8, 0.01, 0.0], [1.5, 3.0, 1.0, 0.3]),
+        maxfev=10000,
     )
     perr = np.sqrt(np.diag(pcov))
-    # Chi-square over degrees of freedom
-    M_pred = _ising_power_law(T, *popt)
+    M_pred = _smoothed_mag(T, *popt)
     chi2 = float(np.sum(((M - M_pred) / S) ** 2))
     dof = int(len(M) - len(popt))
     return {
-        "Tc": round(float(popt[0]), 4),
-        "beta": round(float(popt[1]), 4),
-        "Tc_err": round(float(perr[0]), 4),
-        "beta_err": round(float(perr[1]), 4),
+        "A":  round(float(popt[0]), 4),
+        "Tc": round(float(popt[1]), 4),
+        "w":  round(float(popt[2]), 4),
+        "c":  round(float(popt[3]), 4),
+        "A_err":  round(float(perr[0]), 4),
+        "Tc_err": round(float(perr[1]), 4),
+        "w_err":  round(float(perr[2]), 4),
+        "c_err":  round(float(perr[3]), 4),
         "chi2": round(chi2, 3),
         "dof": dof,
         "chi2_reduced": round(chi2 / dof, 3) if dof > 0 else None,
@@ -109,20 +117,22 @@ def main(
     trace = az.from_netcdf(trace_in)
     mag = _load_csv(csv_in)
 
-    fit = _fit_ising(
+    fit = _fit_smoothed(
         np.array(mag["T"]),
         np.array(mag["M_mean"]),
         np.array(mag["M_std"]),
     )
+    print(f"[fit] A  = {fit['A']} ± {fit['A_err']}")
     print(f"[fit] Tc = {fit['Tc']} ± {fit['Tc_err']}")
-    print(f"[fit] beta = {fit['beta']} ± {fit['beta_err']}")
+    print(f"[fit] w  = {fit['w']} ± {fit['w_err']}")
+    print(f"[fit] c  = {fit['c']} ± {fit['c_err']}")
     print(f"[fit] chi2/dof = {fit['chi2_reduced']}")
 
     data = {
         "magnetization": mag,
         "posterior": _posterior_to_dict(trace),
         "summary": _summary_dict(trace),
-        "mle": fit,
+        "fit": fit,
         "exact": {
             "Tc": round(ONSAGER_TC, 6),
             "beta": EXACT_BETA,
