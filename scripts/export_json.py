@@ -11,10 +11,43 @@ from pathlib import Path
 
 import arviz as az
 import numpy as np
+from scipy.optimize import curve_fit
 
 
 ONSAGER_TC = 2.0 / np.log(1.0 + np.sqrt(2.0))
 EXACT_BETA = 0.125
+
+
+def _ising_power_law(T, Tc, beta):
+    """Physical model: M(T) = (1 − T/Tc)^β  for T<Tc, else 0."""
+    x = np.clip(1.0 - T / Tc, 1e-10, 1.0)
+    return np.where(T < Tc, x**beta, 0.0)
+
+
+def _fit_ising(T: np.ndarray, M: np.ndarray, S: np.ndarray) -> dict:
+    """Nonlinear least squares fit of the Ising power-law to the data."""
+    popt, pcov = curve_fit(
+        _ising_power_law, T, M,
+        p0=[2.4, 0.15],
+        sigma=S,
+        absolute_sigma=False,
+        bounds=([1.5, 0.01], [3.5, 1.0]),
+        maxfev=5000,
+    )
+    perr = np.sqrt(np.diag(pcov))
+    # Chi-square over degrees of freedom
+    M_pred = _ising_power_law(T, *popt)
+    chi2 = float(np.sum(((M - M_pred) / S) ** 2))
+    dof = int(len(M) - len(popt))
+    return {
+        "Tc": round(float(popt[0]), 4),
+        "beta": round(float(popt[1]), 4),
+        "Tc_err": round(float(perr[0]), 4),
+        "beta_err": round(float(perr[1]), 4),
+        "chi2": round(chi2, 3),
+        "dof": dof,
+        "chi2_reduced": round(chi2 / dof, 3) if dof > 0 else None,
+    }
 
 
 def _load_csv(path: str) -> dict:
@@ -74,10 +107,22 @@ def main(
     out_path: str = "../website/assets/data/01-ising.json",
 ) -> None:
     trace = az.from_netcdf(trace_in)
+    mag = _load_csv(csv_in)
+
+    fit = _fit_ising(
+        np.array(mag["T"]),
+        np.array(mag["M_mean"]),
+        np.array(mag["M_std"]),
+    )
+    print(f"[fit] Tc = {fit['Tc']} ± {fit['Tc_err']}")
+    print(f"[fit] beta = {fit['beta']} ± {fit['beta_err']}")
+    print(f"[fit] chi2/dof = {fit['chi2_reduced']}")
+
     data = {
-        "magnetization": _load_csv(csv_in),
+        "magnetization": mag,
         "posterior": _posterior_to_dict(trace),
         "summary": _summary_dict(trace),
+        "mle": fit,
         "exact": {
             "Tc": round(ONSAGER_TC, 6),
             "beta": EXACT_BETA,
