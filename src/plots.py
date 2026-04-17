@@ -37,15 +37,15 @@ def plot_magnetization(csv_path: str, out_path: str) -> None:
     ax.errorbar(
         T, M, yerr=S, fmt="o-", markersize=4,
         color="#7c5cff", ecolor="#9aa3b8", elinewidth=0.8, capsize=2,
-        label=r"$\langle |M| \rangle$ simulada",
+        label=r"simulated $\langle |M| \rangle$",
     )
     ax.axvline(
         ONSAGER_TC, color="#f472b6", linestyle="--", linewidth=1.6,
         label=fr"$T_c^{{\mathrm{{Onsager}}}} \approx {ONSAGER_TC:.4f}$",
     )
-    ax.set_xlabel(r"Temperatura $T$ (en unidades de $J/k_B$)", fontsize=12)
-    ax.set_ylabel(r"Magnetización $\langle |M| \rangle$", fontsize=12)
-    ax.set_title("Transición de fase del modelo de Ising 2D", fontsize=13)
+    ax.set_xlabel(r"Temperature $T$ (in units of $J/k_B$)", fontsize=12)
+    ax.set_ylabel(r"Magnetization $\langle |M| \rangle$", fontsize=12)
+    ax.set_title("2D Ising model phase transition", fontsize=13)
     ax.legend(loc="upper right")
     ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -67,13 +67,13 @@ def plot_posteriors(trace_path: str, out_path: str) -> None:
         trace, var_names=["Tc"], ax=axes[0], hdi_prob=0.95,
         ref_val=ONSAGER_TC, color="#7c5cff",
     )
-    axes[0].set_title(fr"Posterior de $T_c$ — exacto: {ONSAGER_TC:.4f}", fontsize=12)
+    axes[0].set_title(fr"Posterior of $T_c$ — exact: {ONSAGER_TC:.4f}", fontsize=12)
 
     az.plot_posterior(
         trace, var_names=["beta"], ax=axes[1], hdi_prob=0.95,
         ref_val=EXACT_BETA, color="#22d3ee",
     )
-    axes[1].set_title(fr"Posterior de $\beta$ — exacto: {EXACT_BETA}", fontsize=12)
+    axes[1].set_title(fr"Posterior of $\beta$ — exact: {EXACT_BETA}", fontsize=12)
 
     fig.tight_layout()
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
