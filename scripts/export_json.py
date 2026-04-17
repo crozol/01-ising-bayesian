@@ -18,40 +18,46 @@ ONSAGER_TC = 2.0 / np.log(1.0 + np.sqrt(2.0))
 EXACT_BETA = 0.125
 
 
-def _smoothed_mag(T, A, Tc, w, c):
-    """Empirical finite-size magnetization:
+def _asym_sigmoid(T, A, Tc, wL, wR, c):
+    """Asymmetric sigmoid:
 
         M(T) = A/2 · [1 − tanh((T − Tc)/w)] + c
+        w = wL  if T < Tc ,  wR  if T >= Tc
 
-    Captures both the ordered plateau at low T and the finite-size tail above Tc
-    that the clean power law cannot. A/Tc/w/c are all learned from the data.
+    Different widths above and below Tc capture the finite-size Ising curve
+    much better than a symmetric tanh (the left side is broad because the
+    ordered phase approaches 1 gradually; the right side is sharp because
+    the transition collapses M toward the finite-size tail).
     """
+    w = np.where(T < Tc, wL, wR)
     return A * 0.5 * (1.0 - np.tanh((T - Tc) / w)) + c
 
 
 def _fit_smoothed(T: np.ndarray, M: np.ndarray, S: np.ndarray) -> dict:
-    """Weighted nonlinear least squares fit of the sigmoid model."""
+    """Weighted nonlinear least squares fit of the asymmetric sigmoid."""
     popt, pcov = curve_fit(
-        _smoothed_mag, T, M,
-        p0=[0.95, 2.42, 0.1, 0.05],
+        _asym_sigmoid, T, M,
+        p0=[0.92, 2.42, 0.30, 0.08, 0.08],
         sigma=S,
         absolute_sigma=False,
-        bounds=([0.1, 1.8, 0.01, 0.0], [1.5, 3.0, 1.0, 0.3]),
-        maxfev=10000,
+        bounds=([0.5, 2.0, 0.01, 0.01, 0.0], [1.2, 2.8, 1.0, 1.0, 0.25]),
+        maxfev=20000,
     )
     perr = np.sqrt(np.diag(pcov))
-    M_pred = _smoothed_mag(T, *popt)
+    M_pred = _asym_sigmoid(T, *popt)
     chi2 = float(np.sum(((M - M_pred) / S) ** 2))
     dof = int(len(M) - len(popt))
     return {
         "A":  round(float(popt[0]), 4),
         "Tc": round(float(popt[1]), 4),
-        "w":  round(float(popt[2]), 4),
-        "c":  round(float(popt[3]), 4),
+        "wL": round(float(popt[2]), 4),
+        "wR": round(float(popt[3]), 4),
+        "c":  round(float(popt[4]), 4),
         "A_err":  round(float(perr[0]), 4),
         "Tc_err": round(float(perr[1]), 4),
-        "w_err":  round(float(perr[2]), 4),
-        "c_err":  round(float(perr[3]), 4),
+        "wL_err": round(float(perr[2]), 4),
+        "wR_err": round(float(perr[3]), 4),
+        "c_err":  round(float(perr[4]), 4),
         "chi2": round(chi2, 3),
         "dof": dof,
         "chi2_reduced": round(chi2 / dof, 3) if dof > 0 else None,
@@ -124,7 +130,8 @@ def main(
     )
     print(f"[fit] A  = {fit['A']} ± {fit['A_err']}")
     print(f"[fit] Tc = {fit['Tc']} ± {fit['Tc_err']}")
-    print(f"[fit] w  = {fit['w']} ± {fit['w_err']}")
+    print(f"[fit] wL = {fit['wL']} ± {fit['wL_err']}")
+    print(f"[fit] wR = {fit['wR']} ± {fit['wR_err']}")
     print(f"[fit] c  = {fit['c']} ± {fit['c_err']}")
     print(f"[fit] chi2/dof = {fit['chi2_reduced']}")
 
