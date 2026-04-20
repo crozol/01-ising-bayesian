@@ -66,7 +66,7 @@ def sample_mh_numpy(
     T: np.ndarray,
     M: np.ndarray,
     *,
-    draws: int = 3000,
+    draws: int = 5000,
     tune: int = 1000,
     chains: int = 4,
     step: tuple[float, float, float] = (0.05, 0.01, 0.015),
@@ -160,7 +160,7 @@ def run_full_inference(
     trace_out: str = "data/trace.nc",
     *,
     backend: str = "numpy",
-    draws: int = 3000,
+    draws: int = 5000,
     tune: int = 1000,
     chains: int = 4,
     target_accept: float = 0.9,
@@ -205,7 +205,7 @@ def _main() -> None:
     parser.add_argument("--input", type=str, default="data/magnetization.csv")
     parser.add_argument("--output", type=str, default="data/trace.nc")
     parser.add_argument("--backend", type=str, default="numpy", choices=["numpy", "pymc"])
-    parser.add_argument("--draws", type=int, default=3000)
+    parser.add_argument("--draws", type=int, default=5000)
     parser.add_argument("--tune", type=int, default=1000)
     parser.add_argument("--chains", type=int, default=4)
     parser.add_argument("--target-accept", type=float, default=0.9)

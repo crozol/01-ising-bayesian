@@ -21,7 +21,7 @@ def main() -> None:
     run_full_simulation(out_csv="data/magnetization.csv")
 
     print("\n" + "=" * 60)
-    print("STEP 2/3 · Inferencia bayesiana (PyMC + NUTS)")
+    print("STEP 2/3 · Inferencia bayesiana (backend NumPy MH por defecto)")
     print("=" * 60)
     run_full_inference(csv_in="data/magnetization.csv", trace_out="data/trace.nc")
 

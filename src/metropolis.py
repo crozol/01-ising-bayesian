@@ -86,7 +86,7 @@ def run_full_simulation(
     out_csv: str = "data/magnetization.csv",
     *,
     size: int = 32,
-    n_temps: int = 30,
+    n_temps: int = 25,
     t_min: float = 1.5,
     t_max: float = 3.5,
     n_therm: int = 2000,
@@ -117,7 +117,7 @@ def _main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=str, default="data/magnetization.csv")
     parser.add_argument("--size", type=int, default=32)
-    parser.add_argument("--n-temps", type=int, default=30)
+    parser.add_argument("--n-temps", type=int, default=25)
     parser.add_argument("--t-min", type=float, default=1.5)
     parser.add_argument("--t-max", type=float, default=3.5)
     parser.add_argument("--n-therm", type=int, default=2000)

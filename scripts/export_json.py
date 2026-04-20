@@ -145,13 +145,13 @@ def main(
             "beta": EXACT_BETA,
         },
         "metadata": {
-            "lattice_size": 28,
+            "lattice_size": 32,
             "n_temps": 25,
-            "n_thermalization": 1500,
-            "n_measure": 2000,
+            "n_thermalization": 2000,
+            "n_measure": 3000,
             "sampler": "random-walk Metropolis-Hastings (NumPy)",
             "mcmc_chains": 4,
-            "mcmc_draws_post_burn": 3000,
+            "mcmc_draws_post_burn": 5000,
             "mcmc_tune": 1000,
         },
     }
