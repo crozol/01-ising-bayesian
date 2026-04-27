@@ -1,4 +1,4 @@
-# Bayesian inference on the 2D Ising model — a computational lab
+# Bayesian inference on the 2D Ising model
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -7,11 +7,10 @@ critical exponent `β` — from the noisy simulated data using Bayesian inferenc
 Both numbers are known exactly for this system (Onsager, 1944), so the
 experiment has an unambiguous reference to validate against.
 
-This document is written as a **laboratory guide**. It walks through the
-measurement and the analysis in the order you would actually perform them,
-without spoiling the outcome up front. If you follow along you should end up
-with a physical intuition for the phase transition and a clean probabilistic
-estimate of its parameters.
+The document walks through the measurement and the analysis in the order you
+would actually perform them, without spoiling the outcome up front. Following
+along produces a physical intuition for the phase transition and a clean
+probabilistic estimate of its parameters.
 
 ---
 
