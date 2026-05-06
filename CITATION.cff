@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Bayesian inference on the 2D Ising model"
+abstract: "Numerical experiment combining Markov-Chain Monte Carlo simulation of the 2D Ising model with Bayesian inference of its critical parameters (Tc and beta) using PyMC. Posterior estimates are validated against the exact Onsager (1944) solution as ground truth."
+authors:
+  - given-names: "Camilo Andrés"
+    family-names: "Rozo Lozano"
+    affiliation: "Universidad Nacional de Colombia"
+    email: rozol.ca555@gmail.com
+repository-code: "https://github.com/crozol/01-ising-bayesian"
+license: MIT
+version: "1.0.0"
+date-released: 2026-05-05
+keywords:
+  - Ising model
+  - Markov Chain Monte Carlo
+  - Metropolis-Hastings
+  - Bayesian inference
+  - statistical mechanics
+  - phase transition
+  - PyMC
