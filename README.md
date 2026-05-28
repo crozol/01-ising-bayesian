@@ -1,5 +1,9 @@
 # Bayesian inference on the 2D Ising model
 
+[![CI](https://img.shields.io/github/actions/workflow/status/crozol/01-ising-bayesian/tests.yml?label=CI&style=flat-square)](https://github.com/crozol/01-ising-bayesian/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
+
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
 two numbers that govern that transition — the critical temperature `Tc` and the
