@@ -348,15 +348,16 @@ Tc   =   2 / ln(1 + √2)   ≈   2.2692
 
 Our inferred values (posterior mean ± posterior sd):
 
-| Parameter | Inferred | 95% HDI | Exact | Status |
-|---|---|---|---|---|
-| `Tc` | **2.396 ± 0.041** | [2.333, 2.465] | 2.2692 | HDI does **not** contain exact — see below |
-| `β`  | **0.100 ± 0.025** | [0.052, 0.148] | 0.125 | HDI contains exact  ✓ |
-| `σ`  | 0.121 ± 0.018 | [0.090, 0.156] | — | Gaussian noise scale |
+| Parameter | Inferred | 95% HDI | Exact | Δ | Δ relative | Status |
+|---|---|---|---|---|---|---|
+| `Tc` | **2.396 ± 0.041** | [2.333, 2.465] | 2.2692 | `+0.127` | `+5.6 %` | HDI does **not** contain exact — see below |
+| `β`  | **0.100 ± 0.025** | [0.052, 0.148] | 0.125 | `−0.025` | `−20 %` | HDI contains exact  ✓ |
+| `σ`  | 0.121 ± 0.018 | [0.090, 0.156] | — | — | — | Gaussian noise scale |
 
-The critical exponent is recovered within uncertainty. The critical temperature
-is shifted upward by roughly `+0.13`, about 5%. That offset is **not** a bug —
-it is the finite-size effect.
+The critical exponent is recovered within uncertainty (its 95% HDI contains
+the Onsager value). The `Tc` posterior is shifted upward by the `+5.6 %` shown
+in the table; that offset is **not** a bug — it is the finite-size effect
+explained below.
 
 ### Why Tc is shifted
 
