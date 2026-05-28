@@ -1,12 +1,13 @@
 """Publication-style static figures for the README, styled to match the
 portfolio's dark Plotly theme (colors, low-contrast grid, light-on-dark text).
 
-Four PNGs are written to ``--out-dir`` (default ``results/``):
+Five PNGs are written to ``--out-dir`` (default ``results/``):
 
     0. snapshots.png     — two equilibrium lattices (one per phase)
     1. magnetization.png — M(T) curve + phase bands + Onsager Tc
-    2. posteriors.png    — marginal posteriors of Tc and β + 95% HDI
-    3. trace.png         — per-chain MCMC trace with R̂ and ESS
+    2. observables.png   — ⟨ε⟩(T), χ(T) and C(T) with their critical peaks
+    3. posteriors.png    — marginal posteriors of Tc and β + 95% HDI
+    4. trace.png         — per-chain MCMC trace with R̂ and ESS
 
 Design rules:
     - Dark background matching the portfolio (#0d1220 / #0c101c).
@@ -97,6 +98,15 @@ def _load_csv(csv_path: str):
             M.append(float(row["M_mean"]))
             S.append(float(row["M_std"]))
     return np.array(T), np.array(M), np.array(S)
+
+
+def _load_observables(csv_path: str):
+    cols = {k: [] for k in ("T", "E_mean", "E_err", "chi", "chi_err", "C", "C_err")}
+    with open(csv_path) as f:
+        for row in csv.DictReader(f):
+            for k in cols:
+                cols[k].append(float(row[k]))
+    return {k: np.array(v) for k, v in cols.items()}
 
 
 # ----------------------------- Figure 0: lattice snapshots -----------------------------
@@ -283,7 +293,79 @@ def plot_magnetization(csv_path: str, out_path: str, *, lattice_size: int = 32) 
     print(f"[ok] {out_path}")
 
 
-# --------------------------- Figure 2: posteriors ---------------------------
+# ----------------------------- Figure 2: observables -----------------------------
+
+def plot_observables(csv_path: str, out_path: str, *, lattice_size: int = 32) -> None:
+    """Energy per site, susceptibility and specific heat vs. temperature.
+
+    Three companion observables to ⟨|M|⟩: each is a different fingerprint of the
+    same transition. ⟨ε⟩ has its steepest slope near Tc, while χ and C peak there
+    — and for a finite lattice those peaks sit slightly above the Onsager Tc.
+    """
+    import matplotlib.pyplot as plt
+
+    _style()
+    obs = _load_observables(csv_path)
+    T = obs["T"]
+    x_lo, x_hi = T.min() - 0.03, T.max() + 0.03
+
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 5.2))
+    fig.patch.set_facecolor(BG_PANEL)
+
+    panels = (
+        (axes[0], obs["E_mean"], obs["E_err"], PURPLE,
+         r"Energy per site  $\langle \varepsilon \rangle$",
+         r"$\langle \varepsilon \rangle$   ($J$ per site)", False),
+        (axes[1], obs["chi"], obs["chi_err"], PINK,
+         r"Magnetic susceptibility  $\chi$",
+         r"$\chi$   ($J^{-1}$ per site)", True),
+        (axes[2], obs["C"], obs["C_err"], CYAN,
+         r"Specific heat  $C$",
+         r"$C$   ($k_B$ per site)", True),
+    )
+
+    for ax, y, yerr, color, title, ylabel, mark_peak in panels:
+        ax.axvline(ONSAGER_TC, color=AMBER, linestyle="--", linewidth=1.7,
+                   zorder=2, label=r"Onsager $T_c = 2.2692$")
+
+        ax.errorbar(
+            T, y, yerr=yerr, fmt="o-", markersize=5.0, color=color,
+            markeredgecolor=BG_PANEL, markeredgewidth=0.8, lw=1.8,
+            ecolor=(1, 1, 1, 0.32), elinewidth=1.1, capsize=2.6, zorder=4,
+        )
+
+        if mark_peak:
+            ip = int(np.argmax(y))
+            ax.annotate(
+                fr"characteristic peak" "\n" fr"$T^* = {T[ip]:.2f}$",
+                xy=(T[ip], y[ip]),
+                xytext=(T[ip] + 0.42, y[ip] * 0.62),
+                fontsize=9.6, color=FG_0, ha="left", va="center", family=MONO,
+                arrowprops=dict(arrowstyle="->", color=FG_1, lw=1.0,
+                                connectionstyle="arc3,rad=0.18"),
+                bbox=dict(boxstyle="round,pad=0.35", facecolor=BG_PANEL,
+                          edgecolor=color, linewidth=0.9, alpha=0.92),
+            )
+
+        ax.set_xlabel(r"Temperature  $T$   ($J / k_B$)")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title, loc="left", pad=10)
+        ax.set_xlim(x_lo, x_hi)
+        ax.legend(loc="best", framealpha=0.95, fontsize=9.2, borderpad=0.5)
+
+    fig.suptitle(
+        f"Thermodynamic observables vs. temperature  "
+        f"({lattice_size}×{lattice_size} lattice, periodic BCs)",
+        fontweight="bold", fontsize=13.5, y=1.02, x=0.01, ha="left", color=FG_0,
+    )
+    fig.tight_layout()
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor=BG_PANEL)
+    plt.close(fig)
+    print(f"[ok] {out_path}")
+
+
+# --------------------------- Figure 3: posteriors ---------------------------
 
 def _kde(samples: np.ndarray, grid_n: int = 500):
     x = np.asarray(samples).ravel()
@@ -427,7 +509,7 @@ def plot_posteriors(trace_path: str, out_path: str) -> None:
     print(f"[ok] {out_path}")
 
 
-# --------------------------- Figure 3: trace ---------------------------
+# --------------------------- Figure 4: trace ---------------------------
 
 def plot_trace(trace_path: str, out_path: str) -> None:
     """Per-chain trace plots · dark portfolio style."""
@@ -511,6 +593,8 @@ def plot_all(
     plot_snapshots(str(out / "snapshots.png"), size=lattice_size)
     plot_magnetization(csv_path, str(out / "magnetization.png"),
                        lattice_size=lattice_size)
+    plot_observables(csv_path, str(out / "observables.png"),
+                     lattice_size=lattice_size)
     plot_posteriors(trace_path, str(out / "posteriors.png"))
     plot_trace(trace_path, str(out / "trace.png"))
 

@@ -8,8 +8,11 @@ del ensemble canónico.
 Energía del sistema:
     E = −J · Σ<i,j> sᵢ · sⱼ
 
-Observable medido:
-    <|M|> = <|(1/N²) · Σ sᵢⱼ|>
+Observables medidos por temperatura (sobre las configuraciones de equilibrio):
+    <|M|>   = <|(1/N²) · Σ sᵢⱼ|>                    magnetización por sitio
+    <ε>     = <E> / N²                              energía por sitio  (∈ [−2, 2])
+    χ       = (N² / T) · (<m²> − <|m|>²)            susceptibilidad por sitio
+    C       = (N² / T²) · (<ε²> − <ε>²)             calor específico por sitio
 """
 
 from __future__ import annotations
@@ -54,6 +57,46 @@ def _sweep(lattice: np.ndarray, T: float, J: float) -> None:
             lattice[i, j] = -s
 
 
+@njit(cache=True)
+def _energy_per_site(lattice: np.ndarray, J: float) -> float:
+    """Energía por sitio E/N². Cada enlace se cuenta una vez (vecinos der + abajo)."""
+    n = lattice.shape[0]
+    total = 0.0
+    for i in range(n):
+        for j in range(n):
+            s = lattice[i, j]
+            total += s * (lattice[i, (j + 1) % n] + lattice[(i + 1) % n, j])
+    return -J * total / (n * n)
+
+
+def _block_mean_error(x: np.ndarray, n_blocks: int) -> float:
+    """Error estadístico de la media vía blocking (absorbe la autocorrelación MC)."""
+    n_blocks = max(2, min(n_blocks, len(x)))
+    bs = len(x) // n_blocks
+    block_means = x[: bs * n_blocks].reshape(n_blocks, bs).mean(axis=1)
+    return float(block_means.std(ddof=1) / np.sqrt(n_blocks))
+
+
+def _block_jackknife_var(x: np.ndarray, n_blocks: int) -> tuple[float, float]:
+    """Varianza poblacional y su error por jackknife sobre bloques.
+
+    El jackknife por bloques (Newman & Barkema 1999, cap. 3) da una barra de error
+    fiable para un estimador no lineal como la varianza incluso cuando las muestras
+    están autocorrelacionadas, siempre que el bloque sea más largo que el tiempo de
+    autocorrelación. Cerca de Tc ese tiempo diverge (critical slowing down), así que
+    el error crece — que es justo lo que la figura debe mostrar.
+    """
+    n_blocks = max(2, min(n_blocks, len(x)))
+    bs = len(x) // n_blocks
+    x = x[: bs * n_blocks]
+    block_id = np.arange(len(x)) // bs
+    var_full = float(x.var())
+    leave_one = np.array([x[block_id != b].var() for b in range(n_blocks)])
+    jack_mean = leave_one.mean()
+    err = np.sqrt((n_blocks - 1) / n_blocks * np.sum((leave_one - jack_mean) ** 2))
+    return var_full, float(err)
+
+
 def simulate_at_temperature(
     T: float,
     *,
@@ -62,23 +105,44 @@ def simulate_at_temperature(
     n_measure: int = 3000,
     J: float = 1.0,
     seed: int = 0,
+    n_blocks: int = 20,
 ) -> dict:
-    """Mide <|M|> y su desviación estándar a temperatura T."""
+    """Mide <|M|>, <ε>, susceptibilidad χ y calor específico C a temperatura T.
+
+    χ y C llevan barra de error por jackknife sobre bloques; <ε> por blocking de
+    la media. Cerca de Tc esas barras crecen por el critical slowing down.
+    """
     np.random.seed(seed)
-    lattice = np.where(np.random.random((size, size)) < 0.5, -1, 1).astype(np.int8)
+    # Cold (ordered) start: a random start can trap the low-T runs in a long-lived
+    # domain-wall (stripe) state — metastable and exponentially slow to anneal out.
+    # Starting from the ordered ground state samples the broken-symmetry phase
+    # robustly; above Tc the burn-in disorders it just the same.
+    lattice = np.ones((size, size), dtype=np.int8)
 
     for _ in range(n_therm):
         _sweep(lattice, T, J)
 
-    samples = np.empty(n_measure)
+    m_samples = np.empty(n_measure)
+    e_samples = np.empty(n_measure)
     for k in range(n_measure):
         _sweep(lattice, T, J)
-        samples[k] = np.abs(lattice.mean())
+        m_samples[k] = np.abs(lattice.mean())
+        e_samples[k] = _energy_per_site(lattice, J)
+
+    n_spins = size * size
+    var_m, var_m_err = _block_jackknife_var(m_samples, n_blocks)
+    var_e, var_e_err = _block_jackknife_var(e_samples, n_blocks)
 
     return {
         "T": float(T),
-        "M_mean": float(samples.mean()),
-        "M_std": float(samples.std()),
+        "M_mean": float(m_samples.mean()),
+        "M_std": float(m_samples.std()),
+        "E_mean": float(e_samples.mean()),
+        "E_err": _block_mean_error(e_samples, n_blocks),
+        "chi": n_spins * var_m / T,
+        "chi_err": n_spins * var_m_err / T,
+        "C": n_spins * var_e / (T * T),
+        "C_err": n_spins * var_e_err / (T * T),
     }
 
 
@@ -93,7 +157,7 @@ def run_full_simulation(
     n_measure: int = 3000,
     seed: int = 0,
 ) -> list[dict]:
-    """Barre un rango de temperaturas y guarda la curva M(T) en CSV."""
+    """Barre un rango de temperaturas y guarda los observables M(T), ε(T), χ(T), C(T) en CSV."""
     T_values = np.linspace(t_min, t_max, n_temps)
     results: list[dict] = []
     for i, T in enumerate(T_values):
@@ -101,12 +165,17 @@ def run_full_simulation(
             T, size=size, n_therm=n_therm, n_measure=n_measure, seed=seed + i
         )
         results.append(r)
-        print(f"  T = {T:5.3f}  <|M|> = {r['M_mean']:.4f}  σ = {r['M_std']:.4f}")
+        print(
+            f"  T = {T:5.3f}  |M| = {r['M_mean']:.4f}  E = {r['E_mean']:+.4f}"
+            f"  chi = {r['chi']:7.3f} +/- {r['chi_err']:6.3f}"
+            f"  C = {r['C']:6.3f} +/- {r['C_err']:5.3f}"
+        )
 
     out_path = Path(out_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["T", "M_mean", "M_std", "E_mean", "E_err", "chi", "chi_err", "C", "C_err"]
     with out_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["T", "M_mean", "M_std"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
     print(f"\n[ok] guardado en {out_path}  ({len(results)} filas)")

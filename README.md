@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 
-**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. NUTS posteriors recover `Tc = 2.396 ± 0.041` and `β = 1/8` (Onsager's exact value lies inside the 95% credible interval for `β`; the `Tc` posterior is shifted from the infinite-lattice 2.2692 as expected from finite-size scaling). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
+**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. MCMC posteriors recover `Tc = 2.371 ± 0.034` and `β = 0.093 ± 0.023` (Onsager's exact `β = 1/8` lies inside the 95% credible interval; the `Tc` posterior is shifted above the infinite-lattice 2.2692 as expected from finite-size scaling — an offset independently confirmed by the susceptibility and specific-heat peaks). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -31,14 +31,15 @@ probabilistic estimate of its parameters.
    - [5.2 · Running the system at a fixed temperature](#52--running-the-system-at-a-fixed-temperature)
    - [5.3 · Sweeping across temperatures](#53--sweeping-across-temperatures)
 6. [First observation: what does the M(T) curve look like?](#6--first-observation-what-does-the-mt-curve-look-like)
-7. [Quantitative analysis: Bayesian inference of Tc and β](#7--quantitative-analysis-bayesian-inference-of-tc-and-β)
-8. [Reading the posteriors](#8--reading-the-posteriors)
-9. [MCMC diagnostics — did the sampler actually work?](#9--mcmc-diagnostics--did-the-sampler-actually-work)
-10. [Comparison with Onsager's exact solution](#10--comparison-with-onsagers-exact-solution)
-11. [Reproducing the experiment](#11--reproducing-the-experiment)
-12. [Optional follow-ups](#12--optional-follow-ups)
-13. [File map](#13--file-map)
-14. [References](#14--references)
+7. [Energy, susceptibility and specific heat](#7--energy-susceptibility-and-specific-heat)
+8. [Quantitative analysis: Bayesian inference of Tc and β](#8--quantitative-analysis-bayesian-inference-of-tc-and-β)
+9. [Reading the posteriors](#9--reading-the-posteriors)
+10. [MCMC diagnostics — did the sampler actually work?](#10--mcmc-diagnostics--did-the-sampler-actually-work)
+11. [Comparison with Onsager's exact solution](#11--comparison-with-onsagers-exact-solution)
+12. [Reproducing the experiment](#12--reproducing-the-experiment)
+13. [Optional follow-ups](#13--optional-follow-ups)
+14. [File map](#14--file-map)
+15. [References](#15--references)
 
 ---
 
@@ -158,9 +159,12 @@ One iteration (`src/metropolis.py:_sweep`):
 3. Accept the flip with probability `min(1, exp(−ΔE / T))`.
 
 A **sweep** is `N²` single-site proposals, so on average every site is
-touched once. We do `n_therm = 2000` sweeps of burn-in (to let the lattice
-"forget" its random start and reach equilibrium), followed by `n_measure =
-3000` sweeps during which we record `|M|` after each sweep.
+touched once. Each run starts from a cold (fully ordered) configuration: a
+random start can trap the low-temperature runs in a long-lived domain-wall
+state, whereas the ordered start samples the broken-symmetry phase cleanly and
+disorders just as readily above `Tc`. We do `n_therm = 2000` sweeps of burn-in
+to reach equilibrium, followed by `n_measure = 3000` sweeps during which we
+record the magnetization and energy after each sweep.
 
 The hot inner loop is JIT-compiled with `@numba.njit(cache=True)`. A pure-Python
 fallback activates automatically if Numba is not installed.
@@ -192,10 +196,14 @@ extremes, and writes the result to `data/magnetization.csv`:
 | `T` | temperature (units of `J/k_B`) |
 | `M_mean` | sample mean of `|M|` over the `n_measure` equilibrium sweeps |
 | `M_std` | sample standard deviation of `|M|` over the same sweeps |
+| `E_mean`, `E_err` | mean energy per site and its blocking error |
+| `chi`, `chi_err` | magnetic susceptibility and its block-jackknife error |
+| `C`, `C_err` | specific heat and its block-jackknife error |
 
-`M_std` is the honest statistical uncertainty of each point — it is the
-"error bar" of a Monte Carlo measurement, caused by the finite length of
-the simulation.
+`M_std` is the honest statistical uncertainty of each `⟨|M|⟩` point — the
+"error bar" of a Monte Carlo measurement, set by the finite length of the
+simulation. The remaining columns are the additional thermodynamic observables
+analysed in Section 7; their error bars come from blocking and block jackknife.
 
 Nothing about Onsager's solution is used at any point here. The simulator
 is blind to the theoretical answer.
@@ -220,17 +228,64 @@ Three features are worth naming out loud before moving on:
    in a narrow window. The curve is not a slow roll; the system changes
    character over a range of roughly `0.2` units of `T`. This is the
    signature of a **phase transition**.
-3. **Error bars widen dramatically around the drop.** At `T ≈ 2.4` the
-   standard deviation across sweeps is roughly `0.18` — the equilibrium
+3. **Error bars widen dramatically around the drop.** At `T ≈ 2.3` the
+   standard deviation across sweeps is roughly `0.21` — the equilibrium
    configuration is no longer a single well-defined state but a fluctuating
    mixture. These are the critical fluctuations that give phase transitions
    their reputation for being numerically delicate.
 
 At this point we can *guess* that the critical temperature sits somewhere
 between `2.25` and `2.45`. But "somewhere" is not an estimate; we want a
-number with a credible interval. That is what the next section delivers.
+number with a credible interval. That is what the Bayesian analysis below
+delivers. First, though, three more observables give an independent look at the
+same transition.
 
-## 7 · Quantitative analysis: Bayesian inference of Tc and β
+## 7 · Energy, susceptibility and specific heat
+
+The magnetization is the order parameter, but it is not the only quantity that
+feels the transition. Three companion observables, all measured from the *same*
+equilibrium configurations, give independent views of the same critical point:
+
+- the **energy per site** `⟨ε⟩ = ⟨E⟩/N²`, counting how many neighbour bonds are
+  satisfied;
+- the **magnetic susceptibility** `χ = (N²/T)·(⟨m²⟩ − ⟨|m|⟩²)`, the variance of
+  the magnetization;
+- the **specific heat** `C = (N²/T²)·(⟨ε²⟩ − ⟨ε⟩²)`, the variance of the energy.
+
+The last two are fluctuation observables: by the fluctuation–dissipation
+relation they measure the system's response — to a magnetic field and to
+heating — and both are expected to peak at the transition.
+
+![Observables](figures/observables.png)
+
+**Energy.** `⟨ε⟩` climbs smoothly from the ground-state value `−2J` (every bond
+satisfied) toward `0`, with its steepest slope in the critical region. Its error
+bars — the statistical error of the mean, estimated by blocking — are tiny: a
+mean is an easy thing to measure well.
+
+**Susceptibility and specific heat.** Both show a clear peak at `T* ≈ 2.3–2.4`.
+That peak is an *independent* estimate of the transition temperature — obtained
+with no fit and no prior — and it lands slightly **above** Onsager's
+infinite-lattice `Tc = 2.2692`, the same finite-size displacement that Section 11
+discusses for the Bayesian `Tc`. Two unrelated methods agreeing on the same shift
+is a stronger statement than either alone.
+
+**Why the peaks are ragged.** Unlike the energy, `χ` and `C` carry large, unequal
+error bars near the transition, and `χ` even shows a spurious secondary bump
+around `T ≈ 2.17`. This is not a second transition — it is *critical slowing
+down*. Near `Tc` the correlation length grows to the size of the lattice and the
+autocorrelation time of single-spin-flip Metropolis dynamics diverges as
+`τ ∝ ξ^z`, with a dynamic exponent `z ≈ 2.17` for the 2D Ising model
+(Hohenberg & Halperin 1977; Nightingale & Blöte 1996). The chain decorrelates so
+slowly there that a fixed-length run holds only a handful of independent samples,
+so variance-based estimators like `χ` and `C` turn noisy — which is exactly why
+their error bars balloon in the critical region while `⟨ε⟩` stays clean. The
+block-jackknife bars (Newman & Barkema 1999) make this honest: the secondary bump
+sits well within its own uncertainty. The standard cure is a cluster algorithm
+(Swendsen–Wang 1987; Wolff 1989), which updates whole correlated domains at
+once — a natural extension, not used here.
+
+## 8 · Quantitative analysis: Bayesian inference of Tc and β
 
 Close to a second-order phase transition, statistical mechanics predicts that
 the order parameter vanishes as a power law of the reduced temperature:
@@ -287,16 +342,16 @@ downstream figures are backend-agnostic:
 
 Select with `--backend numpy|pymc`.
 
-## 8 · Reading the posteriors
+## 9 · Reading the posteriors
 
 ![Posteriors](figures/posteriors.png)
 
 **Left panel · posterior of `Tc`.** The distribution is sharply concentrated:
-most of the probability mass lies between `2.33` and `2.47`. The orange
-vertical line is the posterior mean; the pink dashed line is Onsager's exact
+most of the probability mass lies between `2.33` and `2.43`. The pink
+vertical line is the posterior mean; the orange dashed line is Onsager's exact
 value `Tc = 2.2692`; the shaded band is the 95% highest-density interval
-(HDI). Notice that the pink line falls **outside** the HDI — this is an
-important observation, not a failure; Section 10 explains it.
+(HDI). Notice that the orange line falls **outside** the HDI — this is an
+important observation, not a failure; Section 11 explains it.
 
 A small shoulder / second local peak is visible inside the distribution.
 This is a real feature of the likelihood: the piecewise mean has a hard
@@ -304,7 +359,7 @@ threshold at `T = Tc`, so as `Tc` slides across a data temperature the
 number of points in the "power-law arm" vs. the "zero arm" changes by one,
 producing small kinks in the log-posterior. The four MH chains still mix
 across the whole supported region, which is what the `R̂` diagnostic will
-confirm in Section 9.
+confirm in Section 10.
 
 **Right panel · posterior of `β`.** The posterior is unimodal and the
 exact value `β = 1/8 = 0.125` sits comfortably inside the 95% HDI. This is
@@ -315,7 +370,7 @@ Because the posterior on `σ` is not directly physical and of less interest
 here, it is not shown in this figure — it appears in the trace plot below
 as a diagnostic.
 
-## 9 · MCMC diagnostics — did the sampler actually work?
+## 10 · MCMC diagnostics — did the sampler actually work?
 
 A sampler that has not converged produces numbers that look like samples
 but are not. These three checks are non-negotiable:
@@ -333,10 +388,10 @@ but are not. These three checks are non-negotiable:
   four chains on top of each other; you should see them interleaving like
   noise, not separating into bands.
 
-A typical run gives `R̂_max ≈ 1.02`, `ESS_bulk_min ≈ 220`, and a Metropolis
-acceptance rate of 31–35% per chain. Converged.
+A typical run gives `R̂_max ≈ 1.01`, `ESS_bulk_min ≈ 200`, and a Metropolis
+acceptance rate of 37–41% per chain. Converged.
 
-## 10 · Comparison with Onsager's exact solution
+## 11 · Comparison with Onsager's exact solution
 
 For the 2D Ising model on an *infinite* lattice, the critical parameters were
 derived analytically by Onsager in 1944:
@@ -350,12 +405,12 @@ Our inferred values (posterior mean ± posterior sd):
 
 | Parameter | Inferred | 95% HDI | Exact | Δ | Δ relative | Status |
 |---|---|---|---|---|---|---|
-| `Tc` | **2.396 ± 0.041** | [2.333, 2.465] | 2.2692 | `+0.127` | `+5.6 %` | HDI does **not** contain exact — see below |
-| `β`  | **0.100 ± 0.025** | [0.052, 0.148] | 0.125 | `−0.025` | `−20 %` | HDI contains exact  ✓ |
-| `σ`  | 0.121 ± 0.018 | [0.090, 0.156] | — | — | — | Gaussian noise scale |
+| `Tc` | **2.371 ± 0.034** | [2.333, 2.427] | 2.2692 | `+0.102` | `+4.5 %` | HDI does **not** contain exact — see below |
+| `β`  | **0.093 ± 0.023** | [0.050, 0.139] | 0.125 | `−0.032` | `−26 %` | HDI contains exact  ✓ |
+| `σ`  | 0.113 ± 0.017 | [0.083, 0.148] | — | — | — | Gaussian noise scale |
 
 The critical exponent is recovered within uncertainty (its 95% HDI contains
-the Onsager value). The `Tc` posterior is shifted upward by the `+5.6 %` shown
+the Onsager value). The `Tc` posterior is shifted upward by the `+4.5 %` shown
 in the table; that offset is **not** a bug — it is the finite-size effect
 explained below.
 
@@ -372,10 +427,10 @@ Tc(N)  −  Tc(∞)   ∝   1 / N
 and empirically the apparent transition sits at a slightly higher temperature
 on finite systems. For `N = 32` a shift of order `+0.1`–`+0.15` is exactly
 what is expected. The experiment is doing the right thing; it is the *finite
-lattice* that shifts `Tc`, not the sampler. Section 12 shows how to shrink
+lattice* that shifts `Tc`, not the sampler. Section 13 shows how to shrink
 the shift by enlarging the lattice.
 
-## 11 · Reproducing the experiment
+## 12 · Reproducing the experiment
 
 ```bash
 pip install -r requirements.txt
@@ -402,7 +457,7 @@ Typical runtimes on a modern laptop (no C compiler):
 A companion notebook `notebooks/explore.ipynb` steps through the same
 pipeline interactively with intermediate prints.
 
-## 12 · Optional follow-ups
+## 13 · Optional follow-ups
 
 **Enlarge the lattice.** The finite-size shift in `Tc` shrinks as `1/N`. A
 64×64 or 128×128 run pushes the posterior closer to Onsager's value at a
@@ -424,12 +479,7 @@ python -m src.bayesian --backend pymc
 
 Expect roughly 5× fewer draws for the same ESS.
 
-**Measure other observables.** Energy `⟨E⟩`, specific heat `C(T) = Var(E)/T²`,
-and susceptibility `χ(T) = N² · Var(|M|)/T` all peak near `Tc`. Computing
-them inside `simulate_at_temperature` is a small modification and gives
-three additional ways to locate the transition.
-
-## 13 · File map
+## 14 · File map
 
 ```
 01-ising-bayesian/
@@ -449,13 +499,14 @@ three additional ways to locate the transition.
 ├── figures/                     # tracked PNGs embedded in this README
 │   ├── snapshots.png            # two equilibrium lattices, one per phase
 │   ├── magnetization.png        # M(T) curve + fit + Onsager line
+│   ├── observables.png          # energy, susceptibility, specific heat vs. T
 │   ├── posteriors.png           # marginal posteriors of Tc and β
 │   └── trace.png                # per-chain trace plots + diagnostics
 ├── data/                        # (gitignored) generated CSV + NetCDF
 └── results/                     # (gitignored) staging for fresh PNGs
 ```
 
-## 14 · References
+## 15 · References
 
 - Onsager, L. (1944). *Crystal Statistics. I. A Two-Dimensional Model with
   an Order-Disorder Transition.* Physical Review **65**, 117.
@@ -467,5 +518,20 @@ three additional ways to locate the transition.
 - Ferrenberg, A. M. & Landau, D. P. (1991). *Critical behavior of the
   three-dimensional Ising model: A high-resolution Monte Carlo study.*
   Physical Review B **44**, 5081.  (finite-size scaling reference)
+- Hohenberg, P. C. & Halperin, B. I. (1977). *Theory of Dynamic Critical
+  Phenomena.* Reviews of Modern Physics **49**, 435.  (dynamic critical
+  exponents and critical slowing down)
+- Nightingale, M. P. & Blöte, H. W. J. (1996). *Dynamic Exponent of the
+  Two-Dimensional Ising Model and Monte Carlo Computation of the Subdominant
+  Eigenvalue of the Stochastic Matrix.* Physical Review Letters **76**, 4548.
+  (dynamic exponent `z ≈ 2.17`)
+- Swendsen, R. H. & Wang, J.-S. (1987). *Nonuniversal Critical Dynamics in
+  Monte Carlo Simulations.* Physical Review Letters **58**, 86.  (cluster
+  algorithm)
+- Wolff, U. (1989). *Collective Monte Carlo Updating for Spin Systems.*
+  Physical Review Letters **62**, 361.  (single-cluster algorithm)
+- Newman, M. E. J. & Barkema, G. T. (1999). *Monte Carlo Methods in
+  Statistical Physics.* Oxford University Press.  (critical slowing down;
+  blocking and jackknife error analysis)
 - Gelman, A. et al. (2013). *Bayesian Data Analysis*, 3rd ed., Chapman &
   Hall.  (general reference for priors, HDIs, and diagnostics)
