@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 
+**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. NUTS posteriors recover `Tc = 2.396 ± 0.041` and `β = 1/8` (Onsager's exact value lies inside the 95% credible interval for `β`; the `Tc` posterior is shifted from the infinite-lattice 2.2692 as expected from finite-size scaling). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
+
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
 two numbers that govern that transition — the critical temperature `Tc` and the
