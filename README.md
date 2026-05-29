@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/ising-bayesian-demo)
 
-**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. MCMC posteriors recover `Tc = 2.371 ± 0.034` and `β = 0.093 ± 0.023` (Onsager's exact `β = 1/8` lies inside the 95% credible interval; the `Tc` posterior is shifted above the infinite-lattice 2.2692 as expected from finite-size scaling — an offset independently confirmed by the susceptibility and specific-heat peaks). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
+**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. MCMC posteriors recover `Tc = 2.363 ± 0.027` and `β = 0.090 ± 0.020` (Onsager's exact `β = 1/8` lies inside the 95% credible interval; the `Tc` posterior is shifted above the infinite-lattice 2.2692 as expected from finite-size scaling — an offset independently confirmed by the susceptibility and specific-heat peaks). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -348,7 +348,7 @@ Select with `--backend numpy|pymc`.
 ![Posteriors](figures/posteriors.png)
 
 **Left panel · posterior of `Tc`.** The distribution is sharply concentrated:
-most of the probability mass lies between `2.33` and `2.43`. The pink
+most of the probability mass lies between `2.33` and `2.42`. The pink
 vertical line is the posterior mean; the orange dashed line is Onsager's exact
 value `Tc = 2.2692`; the shaded band is the 95% highest-density interval
 (HDI). Notice that the orange line falls **outside** the HDI — this is an
@@ -383,19 +383,20 @@ but are not. These three checks are non-negotiable:
   parameters pass.
 - **`ESS_bulk` (effective sample size).** Accounts for autocorrelation —
   one independent sample is worth many correlated ones. `≥ 200` is a
-  working threshold. `Tc` and `σ` clear it comfortably; `β` is the
-  slowest-mixing parameter — the hard threshold at `T = Tc` makes its
-  posterior strongly autocorrelated — so its `ESS_bulk` hovers around 200
-  and can dip just below on a given run. More draws or the NUTS backend
-  lift it well clear.
+  working threshold. `Tc` and `σ` clear it comfortably (a few hundred each);
+  `β` is the slowest-mixing parameter — the hard threshold at `T = Tc` makes
+  its posterior more autocorrelated — but it still clears the threshold
+  (`ESS_bulk ≈ 300` in the frozen run). On a leaner run it can dip toward
+  150–200; more draws or the NUTS backend lift it well clear.
 - **Visual inspection.** Healthy chains overlap, do not drift with
   iteration, do not stick in any one region. Each subplot above shows all
   four chains on top of each other; you should see them interleaving like
   noise, not separating into bands.
 
-A typical run gives `R̂_max ≈ 1.03`, `ESS_bulk` of a few hundred for `Tc`/`σ`
-and ≈150–200 for the slower `β`, and a Metropolis acceptance rate in the low
-tens of percent (≈20–32%). Converged, with `β` the parameter to watch.
+The frozen run gives `R̂_max ≈ 1.01`, `ESS_bulk` of a few hundred for every
+parameter (≈ 770 for `Tc`, ≈ 740 for `σ`, ≈ 300 for the slower `β`), and a
+Metropolis acceptance rate in the low tens of percent. Converged, with `β` the
+parameter to watch.
 
 ## 11 · Comparison with Onsager's exact solution
 
@@ -411,12 +412,12 @@ Our inferred values (posterior mean ± posterior sd):
 
 | Parameter | Inferred | 95% HDI | Exact | Δ | Δ relative | Status |
 |---|---|---|---|---|---|---|
-| `Tc` | **2.371 ± 0.034** | [2.333, 2.427] | 2.2692 | `+0.102` | `+4.5 %` | HDI does **not** contain exact — see below |
-| `β`  | **0.093 ± 0.023** | [0.050, 0.139] | 0.125 | `−0.032` | `−26 %` | HDI contains exact  ✓ |
-| `σ`  | 0.113 ± 0.017 | [0.083, 0.148] | — | — | — | Gaussian noise scale |
+| `Tc` | **2.363 ± 0.027** | [2.333, 2.416] | 2.2692 | `+0.094` | `+4.1 %` | HDI does **not** contain exact — see below |
+| `β`  | **0.090 ± 0.020** | [0.054, 0.130] | 0.125 | `−0.035` | `−28 %` | HDI contains exact  ✓ |
+| `σ`  | 0.109 ± 0.017 | [0.079, 0.142] | — | — | — | Gaussian noise scale |
 
 The critical exponent is recovered within uncertainty (its 95% HDI contains
-the Onsager value). The `Tc` posterior is shifted upward by the `+4.5 %` shown
+the Onsager value). The `Tc` posterior is shifted upward by the `+4.1 %` shown
 in the table; that offset is **not** a bug — it is the finite-size effect
 explained below.
 
