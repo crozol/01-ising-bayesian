@@ -39,6 +39,17 @@ except ImportError:
 
 
 @njit(cache=True)
+def _seed(seed: int) -> None:
+    """Siembra el RNG que usan los kernels.
+
+    Numba mantiene un generador propio dentro del código compilado: llamar
+    np.random.seed desde Python no lo toca. Sembrar desde un @njit sí lo hace
+    (y sin Numba equivale a np.random.seed normal).
+    """
+    np.random.seed(seed)
+
+
+@njit(cache=True)
 def _sweep(lattice: np.ndarray, T: float, J: float) -> None:
     """Un barrido completo: N² intentos de flip con regla de Metropolis."""
     n = lattice.shape[0]
@@ -112,7 +123,7 @@ def simulate_at_temperature(
     χ y C llevan barra de error por jackknife sobre bloques; <ε> por blocking de
     la media. Cerca de Tc esas barras crecen por el critical slowing down.
     """
-    np.random.seed(seed)
+    _seed(seed)
     # Cold (ordered) start: a random start can trap the low-T runs in a long-lived
     # domain-wall (stripe) state — metastable and exponentially slow to anneal out.
     # Starting from the ordered ground state samples the broken-symmetry phase

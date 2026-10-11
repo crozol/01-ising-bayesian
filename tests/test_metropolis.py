@@ -2,8 +2,8 @@
 
 Tests start from cold (fully aligned) configurations so the assertions only
 rely on qualitative thermodynamic behaviour and do not depend on the random
-seed or on whether numba is available on the host (numba uses its own RNG,
-independent from ``numpy.random``).
+seed or on whether numba is available on the host. Reproducibility itself is
+tested separately: the same seed must give bit-identical observables.
 """
 from __future__ import annotations
 
@@ -52,3 +52,17 @@ def test_simulate_returns_consistent_dict_keys():
     assert -2.0 <= r["E_mean"] <= 2.0
     assert r["chi"] >= 0.0 and r["chi_err"] >= 0.0
     assert r["C"] >= 0.0 and r["C_err"] >= 0.0
+
+
+def test_same_seed_is_reproducible():
+    """Same seed → identical observables (numba's RNG must be seeded inside @njit).
+
+    Run near Tc, where fluctuations are largest, so an unseeded RNG would
+    almost surely produce different numbers.
+    """
+    kw = dict(T=2.3, size=16, n_therm=50, n_measure=200)
+    a = simulate_at_temperature(seed=7, **kw)
+    b = simulate_at_temperature(seed=7, **kw)
+    c = simulate_at_temperature(seed=8, **kw)
+    assert a == b
+    assert a != c
