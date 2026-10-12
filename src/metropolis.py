@@ -148,6 +148,7 @@ def simulate_at_temperature(
         "T": float(T),
         "M_mean": float(m_samples.mean()),
         "M_std": float(m_samples.std()),
+        "M_err": _block_mean_error(m_samples, n_blocks),
         "E_mean": float(e_samples.mean()),
         "E_err": _block_mean_error(e_samples, n_blocks),
         "chi": n_spins * var_m / T,
@@ -184,7 +185,7 @@ def run_full_simulation(
 
     out_path = Path(out_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["T", "M_mean", "M_std", "E_mean", "E_err", "chi", "chi_err", "C", "C_err"]
+    fieldnames = ["T", "M_mean", "M_std", "M_err", "E_mean", "E_err", "chi", "chi_err", "C", "C_err"]
     with out_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

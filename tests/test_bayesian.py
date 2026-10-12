@@ -48,3 +48,28 @@ def test_mh_recovers_synthetic_truth():
     samples = sample_mh_numpy(T, M_obs, draws=500, tune=300, chains=2, seed=0)
     Tc_post = samples["Tc"].mean()
     assert abs(Tc_post - Tc_true) < 0.10
+
+
+def test_flat_beta_prior_is_flat_inside_and_closed_outside():
+    a = _log_prior(Tc=2.3, beta=0.05, sigma=0.05, beta_prior="flat")
+    b = _log_prior(Tc=2.3, beta=0.40, sigma=0.05, beta_prior="flat")
+    assert np.isfinite(a) and a == b
+    assert _log_prior(Tc=2.3, beta=0.55, sigma=0.05, beta_prior="flat") == -np.inf
+
+
+def test_heteroscedastic_likelihood_reduces_to_homoscedastic_with_zero_errors():
+    T = np.linspace(1.5, 3.5, 25)
+    M = np.where(T < 2.3, (1 - T / 2.3).clip(1e-10) ** 0.12, 0.0) + 0.01
+    homo = _log_likelihood(2.3, 0.12, 0.03, T, M)
+    hetero = _log_likelihood(2.3, 0.12, 0.03, T, M, M_err=np.zeros_like(M))
+    assert np.isclose(homo, hetero)
+
+
+def test_heteroscedastic_likelihood_downweights_noisy_points():
+    """A residual on a point with a large Monte Carlo error costs less."""
+    T = np.array([1.5, 2.0])
+    M_pred = (1 - T / 2.3) ** 0.12
+    M_obs = M_pred + np.array([0.0, 0.05])
+    quiet = _log_likelihood(2.3, 0.12, 0.01, T, M_obs, M_err=np.array([0.0, 0.0]))
+    noisy = _log_likelihood(2.3, 0.12, 0.01, T, M_obs, M_err=np.array([0.0, 0.05]))
+    assert noisy > quiet

@@ -29,35 +29,59 @@ import numpy as np
 
 # ----------------------------- log-posterior -----------------------------
 
-def _log_prior(Tc: float, beta: float, sigma: float) -> float:
-    """Priors: Tc ~ Normal(2.3, 0.3), β ~ Normal(0.12, 0.05), σ ~ HalfNormal(0.1)."""
+BETA_FLAT = (0.01, 0.5)   # support of the flat β prior
+
+
+def _log_prior(Tc: float, beta: float, sigma: float, beta_prior: str = "normal") -> float:
+    """Priors: Tc ~ Normal(2.3, 0.3), σ ~ HalfNormal(0.1), and either
+    β ~ Normal(0.12, 0.05) ("normal") or β ~ Uniform(0.01, 0.5) ("flat").
+
+    The normal β prior is centred close to the exact 1/8, so a posterior that
+    "recovers" 1/8 under it is partly the prior speaking; the flat prior
+    removes that information and lets the data alone constrain β."""
     if not (1.0 < Tc < 4.0):
-        return -np.inf
-    if not (0.005 < beta < 0.6):
         return -np.inf
     if sigma <= 0.0:
         return -np.inf
     lp = -0.5 * ((Tc - 2.3) / 0.3) ** 2
-    lp += -0.5 * ((beta - 0.12) / 0.05) ** 2
+    if beta_prior == "flat":
+        if not (BETA_FLAT[0] < beta < BETA_FLAT[1]):
+            return -np.inf
+    elif beta_prior == "normal":
+        if not (0.005 < beta < 0.6):
+            return -np.inf
+        lp += -0.5 * ((beta - 0.12) / 0.05) ** 2
+    else:
+        raise ValueError(f"unknown beta_prior: {beta_prior}")
     # HalfNormal(σ_scale=0.1): log density ∝ −σ²/(2·0.1²)
     lp += -0.5 * (sigma / 0.1) ** 2
     return lp
 
 
-def _log_likelihood(Tc: float, beta: float, sigma: float, T: np.ndarray, M: np.ndarray) -> float:
-    """Gaussian likelihood with piecewise power-law mean."""
+def _log_likelihood(
+    Tc: float, beta: float, sigma: float, T: np.ndarray, M: np.ndarray,
+    M_err: np.ndarray | None = None,
+) -> float:
+    """Gaussian likelihood with piecewise power-law mean.
+
+    Homoscedastic (``M_err is None``): every point has the same noise σ.
+    Heteroscedastic: point k has variance M_err[k]² + σ², where M_err[k] is
+    its Monte Carlo standard error and σ absorbs whatever the power law does
+    not describe (model discrepancy)."""
     arg = np.clip(1.0 - T / Tc, 1e-10, 1.0)
     M_pred = np.where(T < Tc, arg ** beta, 0.0)
-    n = len(M)
-    return -0.5 * np.sum((M - M_pred) ** 2) / (sigma ** 2) - n * np.log(sigma)
+    var = sigma ** 2 if M_err is None else M_err ** 2 + sigma ** 2
+    var = np.broadcast_to(var, M.shape)
+    return float(-0.5 * np.sum((M - M_pred) ** 2 / var) - 0.5 * np.sum(np.log(var)))
 
 
-def _log_posterior(theta: np.ndarray, T: np.ndarray, M: np.ndarray) -> float:
+def _log_posterior(theta: np.ndarray, T: np.ndarray, M: np.ndarray,
+                   M_err: np.ndarray | None = None, beta_prior: str = "normal") -> float:
     Tc, beta, sigma = theta
-    lp = _log_prior(Tc, beta, sigma)
+    lp = _log_prior(Tc, beta, sigma, beta_prior)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + _log_likelihood(Tc, beta, sigma, T, M)
+    return lp + _log_likelihood(Tc, beta, sigma, T, M, M_err)
 
 
 # --------------------------- NumPy MH sampler ---------------------------
@@ -71,6 +95,8 @@ def sample_mh_numpy(
     chains: int = 4,
     step: tuple[float, float, float] = (0.05, 0.01, 0.015),
     seed: int = 0,
+    M_err: np.ndarray | None = None,
+    beta_prior: str = "normal",
 ) -> dict:
     """Random-walk Metropolis-Hastings.
 
@@ -89,13 +115,13 @@ def sample_mh_numpy(
             np.abs(rng.normal(0.12, 0.04)) + 0.01,
             np.abs(rng.normal(0.05, 0.02)) + 1e-3,
         ])
-        log_p = _log_posterior(theta, T, M)
+        log_p = _log_posterior(theta, T, M, M_err, beta_prior)
         accept = 0
         total = 0
 
         for i in range(-tune, draws):
             prop = theta + rng.normal(0.0, step, 3)
-            log_p_new = _log_posterior(prop, T, M)
+            log_p_new = _log_posterior(prop, T, M, M_err, beta_prior)
             total += 1
             if np.log(rng.random() + 1e-300) < log_p_new - log_p:
                 theta = prop
@@ -131,25 +157,35 @@ def _to_inferencedata(samples: dict):
 
 # --------------------------- PyMC backend (optional) ---------------------------
 
-def load_data(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
-    T, M = [], []
+def load_data(csv_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Returns (T, ⟨|M|⟩, standard error of ⟨|M|⟩). The last is None for CSVs
+    written before the simulator recorded it."""
+    T, M, M_err = [], [], []
     with open(csv_path) as f:
         for row in csv.DictReader(f):
             T.append(float(row["T"]))
             M.append(float(row["M_mean"]))
-    return np.array(T), np.array(M)
+            if row.get("M_err"):
+                M_err.append(float(row["M_err"]))
+    err = np.array(M_err) if len(M_err) == len(T) else None
+    return np.array(T), np.array(M), err
 
 
-def build_model_pymc(T_obs: np.ndarray, M_obs: np.ndarray):
+def build_model_pymc(T_obs: np.ndarray, M_obs: np.ndarray,
+                     M_err: np.ndarray | None = None, beta_prior: str = "normal"):
     import pymc as pm
 
     with pm.Model() as model:
         Tc = pm.Normal("Tc", mu=2.3, sigma=0.3)
-        beta = pm.Normal("beta", mu=0.12, sigma=0.05)
+        if beta_prior == "flat":
+            beta = pm.Uniform("beta", lower=BETA_FLAT[0], upper=BETA_FLAT[1])
+        else:
+            beta = pm.Normal("beta", mu=0.12, sigma=0.05)
         sigma = pm.HalfNormal("sigma", sigma=0.1)
         arg = pm.math.clip(1.0 - T_obs / Tc, 1e-10, 1.0)
         M_pred = pm.math.switch(T_obs < Tc, arg ** beta, 0.0)
-        pm.Normal("M_obs", mu=M_pred, sigma=sigma, observed=M_obs)
+        noise = sigma if M_err is None else pm.math.sqrt(M_err ** 2 + sigma ** 2)
+        pm.Normal("M_obs", mu=M_pred, sigma=noise, observed=M_obs)
     return model
 
 
@@ -165,21 +201,38 @@ def run_full_inference(
     chains: int = 4,
     target_accept: float = 0.9,
     seed: int = 0,
+    t_max: float | None = None,
+    likelihood: str = "heteroscedastic",
+    beta_prior: str = "flat",
 ):
     import arviz as az
 
-    T_obs, M_obs = load_data(csv_in)
+    T_obs, M_obs, M_err = load_data(csv_in)
     print(f"[bayesian] {len(T_obs)} points loaded from {csv_in}", flush=True)
-    print(f"[bayesian] backend = {backend}", flush=True)
+    if t_max is not None:
+        keep = T_obs < t_max
+        T_obs, M_obs = T_obs[keep], M_obs[keep]
+        M_err = M_err[keep] if M_err is not None else None
+        print(f"[bayesian] fitting the {keep.sum()} points with T < {t_max}", flush=True)
+    if likelihood == "heteroscedastic":
+        if M_err is None:
+            raise ValueError("heteroscedastic likelihood needs an M_err column; re-run the simulation")
+    elif likelihood == "homoscedastic":
+        M_err = None
+    else:
+        raise ValueError(f"unknown likelihood: {likelihood}")
+    print(f"[bayesian] backend = {backend}, likelihood = {likelihood}, "
+          f"beta prior = {beta_prior}", flush=True)
 
     if backend == "numpy":
         samples = sample_mh_numpy(
             T_obs, M_obs, draws=draws, tune=tune, chains=chains, seed=seed,
+            M_err=M_err, beta_prior=beta_prior,
         )
         trace = _to_inferencedata(samples)
     elif backend == "pymc":
         import pymc as pm
-        model = build_model_pymc(T_obs, M_obs)
+        model = build_model_pymc(T_obs, M_obs, M_err, beta_prior)
         with model:
             trace = pm.sample(
                 draws=draws, tune=tune, chains=chains, cores=1,
@@ -210,9 +263,17 @@ def _main() -> None:
     parser.add_argument("--chains", type=int, default=4)
     parser.add_argument("--target-accept", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--t-max", type=float, default=None,
+                        help="fit only the points with T below this value")
+    parser.add_argument("--likelihood", default="heteroscedastic",
+                        choices=["homoscedastic", "heteroscedastic"])
+    parser.add_argument("--beta-prior", default="flat", choices=["normal", "flat"])
     args = parser.parse_args()
 
     run_full_inference(
+        t_max=args.t_max,
+        likelihood=args.likelihood,
+        beta_prior=args.beta_prior,
         csv_in=args.input,
         trace_out=args.output,
         backend=args.backend,

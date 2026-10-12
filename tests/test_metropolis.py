@@ -44,8 +44,9 @@ def test_energy_checkerboard_is_maximum():
 def test_simulate_returns_consistent_dict_keys():
     r = simulate_at_temperature(T=2.0, size=4, n_therm=100, n_measure=100, seed=0)
     assert set(r.keys()) == {
-        "T", "M_mean", "M_std", "E_mean", "E_err", "chi", "chi_err", "C", "C_err"
+        "T", "M_mean", "M_std", "M_err", "E_mean", "E_err", "chi", "chi_err", "C", "C_err"
     }
+    assert 0.0 <= r["M_err"] <= r["M_std"]
     assert r["T"] == 2.0
     assert 0.0 <= r["M_mean"] <= 1.0
     assert r["M_std"] >= 0.0
