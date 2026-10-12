@@ -454,7 +454,7 @@ def _panel_posterior(ax, samples, *, exact, density_color, fill_alpha,
         )
         ax.text(
             0.5 * (mean + exact), y_arrow * 1.08,
-            f"finite-size shift  {mean - exact:+.3f}",
+            f"offset from exact  {mean - exact:+.3f}",
             fontsize=10, color=FG_0, ha="center", va="bottom",
             family=MONO, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.35", facecolor=BG_PANEL,
@@ -578,6 +578,58 @@ def plot_trace(trace_path: str, out_path: str) -> None:
     fig.savefig(out_path, facecolor=BG_PANEL)
     plt.close(fig)
     print(f"[ok] {out_path}")
+
+
+# --------------------------- finite-size scaling ---------------------------
+
+def plot_fss(fss_csv: str, fss_trace: str, out_path: str, *,
+             sizes=(16, 32, 64), t_min: float = 2.23, t_max: float = 2.31) -> None:
+    """Binder cumulant U(T) for every L (crossing at Tc), and the data collapse
+    of U and of <|m|> L^(β/ν) against x = (T − Tc) L^(1/ν) at the posterior
+    mean. Points outside the fitted sizes/window are drawn hollow."""
+    import arviz as az
+    import matplotlib.pyplot as plt
+
+    _style()
+    d = np.genfromtxt(fss_csv, delimiter=",", names=True)
+    post = az.from_netcdf(fss_trace).posterior
+    Tc, nu, b = (float(post[k].mean()) for k in ("Tc", "nu", "b"))
+    U0 = float(post["U0"].mean())
+
+    all_L = sorted(set(int(L) for L in d["L"]))
+    colors = {L: c for L, c in zip(all_L, [FG_1, PURPLE, CYAN, PINK, AMBER])}
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.6))
+    for L in all_L:
+        s = d[d["L"] == L]
+        used = (L in sizes) & (s["T"] >= t_min - 1e-9) & (s["T"] <= t_max + 1e-9)
+        x = (s["T"] - Tc) * L ** (1 / nu)
+        for ax, X, Y, E in [(axes[0], s["T"], s["U"], s["U_err"]),
+                            (axes[1], x, s["U"], s["U_err"]),
+                            (axes[2], x, s["M_abs"] * L ** b, s["M_abs_err"] * L ** b)]:
+            ax.errorbar(X[used], Y[used], yerr=E[used], fmt="o", ms=4.5, color=colors[L],
+                        capsize=2, lw=1, label=f"L = {L}")
+            ax.errorbar(X[~used], Y[~used], yerr=E[~used], fmt="o", ms=4.5, mfc="none",
+                        color=colors[L], capsize=2, lw=1, alpha=0.55)
+        axes[0].plot(s["T"], s["U"], color=colors[L], lw=0.8, alpha=0.6)
+    for ax in axes[:2]:
+        ax.axhline(0.6107, color=AMBER, ls=":", lw=1.2, label=r"exact $U^* = 0.6107$")
+    axes[0].axvline(ONSAGER_TC, color=AMBER, ls="--", lw=1.2, label=r"Onsager $T_c$")
+    axes[0].axvline(Tc, color=PINK, lw=1.2, label=rf"posterior $T_c$ = {Tc:.4f}")
+    axes[0].set(xlabel="T", ylabel="Binder cumulant U")
+    axes[0].set_title("(a) U(T) crosses at Tc", loc="left")
+    axes[1].set(xlabel=r"$x = (T - T_c)\,L^{1/\nu}$", ylabel="U")
+    axes[1].set_title(rf"(b) collapse of U,  $\nu$ = {nu:.3f}", loc="left")
+    axes[2].set(xlabel=r"$x = (T - T_c)\,L^{1/\nu}$", ylabel=r"$\langle|m|\rangle\,L^{\beta/\nu}$")
+    axes[2].set_title(rf"(c) collapse of $\langle|m|\rangle$,  $\beta/\nu$ = {b:.3f}", loc="left")
+    axes[0].legend(fontsize=8.5, loc="lower left")
+    axes[2].legend(fontsize=8.5, loc="upper right")
+    for ax in axes[1:]:
+        ax.set_xlim(-4.5, 4.5)
+    fig.tight_layout()
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor=BG_PANEL)
+    plt.close(fig)
+    print(f"[ok] {out_path}  (U0 posterior mean {U0:.4f})")
 
 
 # ------------------------------- orchestration -------------------------------

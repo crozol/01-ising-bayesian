@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/ising-bayesian-demo)
 
-**TL;DR** — Bayesian inference of the 2D Ising model's critical parameters from Metropolis Monte Carlo data on a 32×32 lattice. MCMC posteriors recover `Tc = 2.363 ± 0.027` and `β = 0.090 ± 0.020` (Onsager's exact `β = 1/8` lies inside the 95% credible interval; the `Tc` posterior is shifted above the infinite-lattice 2.2692 as expected from finite-size scaling — an offset independently confirmed by the susceptibility and specific-heat peaks). Stack: NumPy · Numba JIT · PyMC 5 · ArviZ.
+**TL;DR** — Bayesian inference of the 2D Ising critical point from Metropolis Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation for L = 16, 32, 64 gives `Tc = 2.268` (95% HDI `[2.265, 2.271]`; Onsager `2.2692`), `ν = 0.98 [0.92, 1.05]` (exact `1`) and `β = 0.113 [0.101, 0.126]` (exact `1/8`), with flat priors on all three. A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` that the data do not reliably determine: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law does not (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -36,11 +36,13 @@ probabilistic estimate of its parameters.
 8. [Quantitative analysis: Bayesian inference of Tc and β](#8--quantitative-analysis-bayesian-inference-of-tc-and-β)
 9. [Reading the posteriors](#9--reading-the-posteriors)
 10. [MCMC diagnostics — did the sampler actually work?](#10--mcmc-diagnostics--did-the-sampler-actually-work)
-11. [Comparison with Onsager's exact solution](#11--comparison-with-onsagers-exact-solution)
-12. [Reproducing the experiment](#12--reproducing-the-experiment)
-13. [Optional follow-ups](#13--optional-follow-ups)
-14. [File map](#14--file-map)
-15. [References](#15--references)
+11. [Is the single-size fit right?](#11--is-the-single-size-fit-right)
+12. [Finite-size scaling: several lattice sizes](#12--finite-size-scaling-several-lattice-sizes)
+13. [Comparison with Onsager's exact solution](#13--comparison-with-onsagers-exact-solution)
+14. [Reproducing the experiment](#14--reproducing-the-experiment)
+15. [Possible extensions](#15--possible-extensions)
+16. [File map](#16--file-map)
+17. [References](#17--references)
 
 ---
 
@@ -55,7 +57,8 @@ statistical noise — infer:
 
 Report each quantity as a full **posterior distribution**, not a single point
 estimate. Then compare to the exact values derived analytically for an
-infinite lattice.
+infinite lattice — and, when a single lattice turns out not to be enough,
+repeat the inference with several lattice sizes (finite-size scaling).
 
 ## 2 · Equipment (software stack)
 
@@ -63,11 +66,15 @@ infinite lattice.
 |---|---|
 | Python 3.11+, NumPy | Array arithmetic and base numerics |
 | Numba (`@njit`) | JIT-compiles the Metropolis inner loop (~50× speed-up) |
-| SciPy (`curve_fit`) | Smooth phenomenological fit of the `M(T)` curve |
-| PyMC 5 (optional) + ArviZ | Reference MCMC backend (NUTS) and diagnostics |
+| SciPy (`curve_fit`) | Smooth phenomenological curve drawn through the `M(T)` data in the figure |
+| NumPy MCMC samplers | Random-walk Metropolis-Hastings (single size) and adaptive Metropolis (finite-size scaling) |
+| ArviZ | Posterior summaries, HDIs, `R̂`, ESS |
+| PyMC 5 (optional) | Alternative NUTS backend for the single-size fit |
 | Matplotlib | Static figures |
 
-No GPU is needed. A full run on a modern laptop is a couple of minutes.
+No GPU is needed. The single-size pipeline runs in under a minute on a laptop;
+the finite-size-scaling simulation takes about ten minutes, dominated by the
+64×64 lattice.
 
 ## 3 · Background: what is the 2D Ising model?
 
@@ -197,14 +204,18 @@ extremes, and writes the result to `data/magnetization.csv`:
 | `T` | temperature (units of `J/k_B`) |
 | `M_mean` | sample mean of `|M|` over the `n_measure` equilibrium sweeps |
 | `M_std` | sample standard deviation of `|M|` over the same sweeps |
+| `M_err` | standard error of `⟨|M|⟩`, by blocking |
 | `E_mean`, `E_err` | mean energy per site and its blocking error |
 | `chi`, `chi_err` | magnetic susceptibility and its block-jackknife error |
 | `C`, `C_err` | specific heat and its block-jackknife error |
 
-`M_std` is the honest statistical uncertainty of each `⟨|M|⟩` point — the
-"error bar" of a Monte Carlo measurement, set by the finite length of the
-simulation. The remaining columns are the additional thermodynamic observables
-analysed in Section 7; their error bars come from blocking and block jackknife.
+`M_std` and `M_err` answer different questions. `M_std` is the width of the
+distribution of `|M|` at that temperature — how much the magnetisation
+fluctuates from sweep to sweep, a physical quantity that peaks at the
+transition. `M_err` is the uncertainty of the *average* `⟨|M|⟩`, estimated by
+blocking so that the autocorrelation of consecutive sweeps is accounted for;
+it is what the likelihood in Section 8 uses. The remaining columns are the
+thermodynamic observables analysed in Section 7.
 
 Nothing about Onsager's solution is used at any point here. The simulator
 is blind to the theoretical answer.
@@ -229,8 +240,8 @@ Three features are worth naming out loud before moving on:
    in a narrow window. The curve is not a slow roll; the system changes
    character over a range of roughly `0.2` units of `T`. This is the
    signature of a **phase transition**.
-3. **Error bars widen dramatically around the drop.** At `T ≈ 2.3` the
-   standard deviation across sweeps is roughly `0.21` — the equilibrium
+3. **Fluctuations grow dramatically around the drop.** At `T ≈ 2.33` the
+   standard deviation across sweeps is `0.22` — the equilibrium
    configuration is no longer a single well-defined state but a fluctuating
    mixture. These are the critical fluctuations that give phase transitions
    their reputation for being numerically delicate.
@@ -264,12 +275,13 @@ satisfied) toward `0`, with its steepest slope in the critical region. Its error
 bars — the statistical error of the mean, estimated by blocking — are tiny: a
 mean is an easy thing to measure well.
 
-**Susceptibility and specific heat.** Both show a clear peak at `T* ≈ 2.3–2.4`.
-That peak is an *independent* estimate of the transition temperature — obtained
-with no fit and no prior — and it lands slightly **above** Onsager's
-infinite-lattice `Tc = 2.2692`, the same finite-size displacement that Section 11
-discusses for the Bayesian `Tc`. Two unrelated methods agreeing on the same shift
-is a stronger statement than either alone.
+**Susceptibility and specific heat.** Both peak in the critical region: `χ` at
+`T = 2.33` and `C` at `T = 2.25`, the grid points nearest the transition on
+either side of Onsager's infinite-lattice `Tc = 2.2692`. On a finite lattice
+these peaks are *pseudo-critical* temperatures, displaced from `Tc` by an
+amount that shrinks as `L^(−1/ν)`; with a grid spacing of `0.083` this sweep
+can only place them to within a grid step. Section 12 locates `Tc` precisely
+with several lattice sizes.
 
 **Why the peaks are ragged.** Unlike the energy, `χ` and `C` carry large, unequal
 error bars near the transition, and `χ` even shows a spurious secondary bump
@@ -301,32 +313,44 @@ theory predicts `β = 1/8` exactly. `Tc` is the critical temperature itself.
 
 ### Setting up the probabilistic model
 
-The simulated data `{T_k, M_k, σ_k}` are treated as noisy observations of that
-piecewise power law. The probabilistic model (`src/bayesian.py`) is:
+The simulated data `{T_k, M_k, e_k}` (with `e_k` the standard error `M_err`)
+are treated as noisy observations of that piecewise power law. The
+probabilistic model (`src/bayesian.py`) is:
 
-**Priors** — what we believe about the parameters *before* seeing the data,
-chosen loose enough that the likelihood dominates:
+**Priors** — what we believe about the parameters *before* seeing the data:
 
 | Parameter | Prior | Why |
 |---|---|---|
-| `Tc` | `Normal(2.3, 0.3)` | broad envelope around published values for small 2D Ising lattices |
-| `β`  | `Normal(0.12, 0.05)` | centered near exponents of the 2D Ising universality class |
-| `σ`  | `HalfNormal(0.1)` | scale of the unexplained noise in `⟨|M|⟩` |
+| `Tc` | `Normal(2.3, 0.3)` | broad envelope over the whole transition region |
+| `β`  | `Uniform(0.01, 0.5)` | flat, so that no knowledge of the exact `1/8` enters through the prior |
+| `σ`  | `HalfNormal(0.1)` | scale of what the power law does not describe |
 
-**Likelihood** — Gaussian observation noise around the piecewise mean:
+An earlier version used `β ~ Normal(0.12, 0.05)`, centred almost on the exact
+value; a posterior that "recovers" `1/8` under such a prior is partly the
+prior speaking. Section 11 compares both.
+
+**Likelihood** — Gaussian, with a variance per point:
 
 ```
-M_obs  ~  Normal( (1 − T/Tc)^β ,  σ )      if T < Tc
-M_obs  ~  Normal( 0           ,  σ )       otherwise
+M_k  ~  Normal( (1 − T_k/Tc)^β ,  √(e_k² + σ²) )      if T_k < Tc
+M_k  ~  Normal( 0              ,  √(e_k² + σ²) )      otherwise
 ```
 
-The `T > Tc` branch encodes the broken-symmetry argument of Section 3.
+`e_k` is the Monte Carlo error of each point, known from the simulation; `σ`
+is a free *discrepancy* term that absorbs whatever the power law does not
+describe. If the model were exact, `σ` would come out close to zero.
 
 **Posterior** — by Bayes' theorem:
 
 ```
 P(Tc, β, σ | data)   ∝   P(data | Tc, β, σ) · P(Tc, β, σ)
 ```
+
+There is one more modelling choice here, and it matters: the mean is a pure
+power law with amplitude fixed to `1`, and it is zero above `Tc`. On a finite
+lattice `⟨|M|⟩` is not zero above `Tc` (it decays like `1/L`), and below `Tc`
+the power law is only the leading term of the exact magnetisation. Section 11
+tests what these simplifications do to the result.
 
 The left-hand side has no closed form; we sample from it with MCMC.
 
@@ -337,7 +361,7 @@ downstream figures are backend-agnostic:
 
 - **`numpy` (default)** — a random-walk Metropolis-Hastings sampler
   implemented directly on the log-posterior. No C compiler required; runs in
-  30–90 s on any machine. 4 chains × (1000 tune + 5000 draws).
+  a few seconds. 4 chains × (1000 tune + 5000 draws).
 - **`pymc`** — reference implementation with PyMC + NUTS (gradient-based).
   More efficient but relies on PyTensor's C backend.
 
@@ -347,29 +371,28 @@ Select with `--backend numpy|pymc`.
 
 ![Posteriors](figures/posteriors.png)
 
-**Left panel · posterior of `Tc`.** The distribution is sharply concentrated:
-most of the probability mass lies between `2.33` and `2.42`. The pink
-vertical line is the posterior mean; the orange dashed line is Onsager's exact
-value `Tc = 2.2692`; the shaded band is the 95% highest-density interval
-(HDI). Notice that the orange line falls **outside** the HDI — this is an
-important observation, not a failure; Section 11 explains it.
+**Left panel · posterior of `Tc`.** Most of the probability mass lies between
+`2.33` and `2.44`, with a sharp peak near `2.34` and a long tail to higher
+temperatures. The pink vertical line is the posterior mean (`2.367`); the
+orange dashed line is Onsager's exact value `Tc = 2.2692`; the bar is the 95%
+highest-density interval (HDI). The exact value falls **outside** the HDI, by
+about `0.1`.
 
-A small shoulder / second local peak is visible inside the distribution.
-This is a real feature of the likelihood: the piecewise mean has a hard
-threshold at `T = Tc`, so as `Tc` slides across a data temperature the
-number of points in the "power-law arm" vs. the "zero arm" changes by one,
-producing small kinks in the log-posterior. The four MH chains still mix
-across the whole supported region, which is what the `R̂` diagnostic will
-confirm in Section 10.
+The asymmetric shape is a feature of the likelihood: the piecewise mean has
+a hard threshold at `T = Tc`, so as `Tc` slides across a data temperature the
+number of points in the power-law arm changes by one, producing kinks in the
+log-posterior.
 
-**Right panel · posterior of `β`.** The posterior is unimodal and the
-exact value `β = 1/8 = 0.125` sits comfortably inside the 95% HDI. This is
-what we hoped for: **the piecewise-power-law likelihood is the right
-functional form**, and the data constrains the exponent well.
+**Right panel · posterior of `β`.** The posterior is wide — the 95% HDI
+`[0.048, 0.152]` spans a factor of three — and the exact `1/8` sits inside it,
+toward the upper end. A credible interval this wide is not much of a
+measurement, and Section 11 shows that its location depends on modelling
+choices more than on the data.
 
-Because the posterior on `σ` is not directly physical and of less interest
-here, it is not shown in this figure — it appears in the trace plot below
-as a diagnostic.
+The posterior of the discrepancy term, `σ = 0.115 [0.082, 0.151]`, is the
+first warning: it is about a hundred times larger than the Monte Carlo
+errors `e_k` (`10⁻⁴` to `4 × 10⁻²`). The power law misses the data by far more
+than the data's own uncertainty.
 
 ## 10 · MCMC diagnostics — did the sampler actually work?
 
@@ -379,114 +402,227 @@ but are not. These three checks are non-negotiable:
 ![Trace plots](figures/trace.png)
 
 - **`R̂` (Gelman-Rubin).** Compares variance between chains to variance within
-  chains. `R̂ ≤ 1.01` is the gold standard, `≤ 1.05` is tolerable. All three
-  parameters pass.
+  chains. `R̂ ≤ 1.01` is the gold standard, `≤ 1.05` is tolerable. Here
+  `R̂ = 1.01` for `Tc` and `σ` and `1.02` for `β`.
 - **`ESS_bulk` (effective sample size).** Accounts for autocorrelation —
   one independent sample is worth many correlated ones. `≥ 200` is a
-  working threshold. `Tc` and `σ` clear it comfortably (a few hundred each);
-  `β` is the slowest-mixing parameter — the hard threshold at `T = Tc` makes
-  its posterior more autocorrelated — but it still clears the threshold
-  (`ESS_bulk ≈ 300` in the frozen run). On a leaner run it can dip toward
-  150–200; more draws or the NUTS backend lift it well clear.
+  working threshold. `Tc` (332) and `σ` (562) clear it; `β` (187) falls just
+  short. The hard threshold at `T = Tc` makes `β` the slowest-mixing
+  parameter of this random-walk sampler; more draws or the NUTS backend
+  would lift it.
 - **Visual inspection.** Healthy chains overlap, do not drift with
   iteration, do not stick in any one region. Each subplot above shows all
-  four chains on top of each other; you should see them interleaving like
-  noise, not separating into bands.
+  four chains on top of each other.
 
-The frozen run gives `R̂_max ≈ 1.01`, `ESS_bulk` of a few hundred for every
-parameter (≈ 770 for `Tc`, ≈ 740 for `σ`, ≈ 300 for the slower `β`), and a
-Metropolis acceptance rate in the low tens of percent. Converged, with `β` the
-parameter to watch.
+The acceptance rate is 26–31% per chain. The sampler explores this posterior
+adequately, with `β` the parameter to watch. Convergence, though, only says
+the posterior was sampled correctly — not that the model behind it is right.
 
-## 11 · Comparison with Onsager's exact solution
+## 11 · Is the single-size fit right?
+
+The single-size fit leaves `Tc` about `0.1` above the exact value and `β`
+poorly constrained, with a discrepancy term far larger than the data's own
+errors. `scripts/model_comparison.py` refits the same data under each
+combination of three choices — fitting all temperatures or only the ordered
+side `T < 2.25` (away from the rounded transition and the `1/L` tail above
+it), a homoscedastic or heteroscedastic likelihood, and the normal or the flat
+prior on `β`:
+
+| Fit window | Likelihood | `β` prior | `Tc` | `β` (95% HDI) | `σ` |
+|---|---|---|---|---|---|
+| all `T` | homoscedastic | normal | 2.370 ± 0.036 | 0.101 [0.052, 0.147] | 0.119 |
+| all `T` | homoscedastic | flat | 2.368 ± 0.039 | 0.099 [0.051, 0.150] | 0.118 |
+| all `T` | heteroscedastic | normal | 2.367 ± 0.035 | 0.098 [0.056, 0.141] | 0.114 |
+| all `T` | heteroscedastic | flat (**used**) | 2.367 ± 0.038 | 0.094 [0.048, 0.152] | 0.115 |
+| `T < 2.25` | homoscedastic | normal | 2.30 ± 0.18 | 0.046 [0.026, 0.077] | 0.034 |
+| `T < 2.25` | homoscedastic | flat | 2.26 ± 0.15 | 0.041 [0.025, 0.070] | 0.032 |
+| `T < 2.25` | heteroscedastic | normal | 2.29 ± 0.16 | 0.044 [0.026, 0.076] | 0.033 |
+| `T < 2.25` | heteroscedastic | flat | 2.27 ± 0.16 | 0.042 [0.025, 0.071] | 0.032 |
+
+Three things follow.
+
+1. **The likelihood and the prior barely matter.** The heteroscedastic
+   likelihood cannot help when `σ` dominates every `e_k`, and the flat prior
+   moves `β` by less than its own uncertainty.
+2. **The fit window matters a great deal.** On the ordered side alone, `β`
+   drops to `0.04` and its HDI excludes `1/8`, while `Tc` is barely
+   constrained (`± 0.16`).
+3. **The simulation is not the problem.** For `T < 2.25` the measured
+   `⟨|M|⟩` agrees with Onsager's exact infinite-lattice magnetisation
+   `M(T) = (1 − sinh(2/T)⁻⁴)^(1/8)` (Yang 1952) to within `0.012`, or 1.8
+   standard errors. The pure power law with the *exact* `Tc` and `β` misses the
+   same points by up to `0.14`: it is only the leading term of `M(T)` as
+   `T → Tc`, with an amplitude of about `1.22` rather than `1`.
+
+Freeing the amplitude, `M = B (1 − T/Tc)^β`, does not rescue the fit: on the
+ordered side `Tc` and `β` become degenerate (`Tc` HDI `[2.18, 2.62]`, `R̂ = 1.10`),
+and over the full range the fit moves to `β = 0.38`, far from `1/8`.
+
+The conclusion is that a single lattice cannot determine `β` this way. Close
+to `Tc`, where the power law holds, the finite lattice rounds the transition
+and leaves a `1/L` tail; far from `Tc`, where the lattice behaves like an
+infinite one, the power law no longer holds. The `β ≈ 0.09–0.10` of the
+full-range fit is a compromise between those two errors, and its proximity to
+`1/8` is partly luck. The `+0.1` offset in `Tc` has the same origin — the
+nonzero tail above `Tc` pushes the threshold of the piecewise model upward —
+and it is not a finite-size shift of the transition itself: the Binder
+cumulants of `L = 32` and `L = 64` cross within `0.005` of the exact `Tc`
+(Section 12).
+
+## 12 · Finite-size scaling: several lattice sizes
+
+The finite lattice is not just a nuisance; how the observables change with
+`L` carries the critical behaviour (Fisher & Barber 1972). Near `Tc` they
+depend on `T` and `L` only through the scaling variable
+`x = (T − Tc) · L^(1/ν)`, up to corrections that shrink with `L`. Two
+observables are used:
+
+- the **Binder cumulant** `U = 1 − ⟨m⁴⟩ / (3⟨m²⟩²)` (Binder 1981), which is
+  dimensionless, so `U(T, L) = f(x)`: the curves for different `L` cross at
+  `Tc`, at a universal value `U* ≈ 0.6107` for the periodic square lattice
+  (Salas & Sokal 2000);
+- the **magnetisation**, `⟨|m|⟩(T, L) = L^(−β/ν) g(x)`, whose size dependence
+  at `Tc` gives the ratio `β/ν`.
+
+**Data.** `src/fss.py` runs `L = 8, 16, 32, 64` at 15 temperatures in
+`[2.20, 2.34]`. Metropolis decorrelates slowly near `Tc` (Section 7), so each
+point uses 20 000 burn-in and 200 000 measured sweeps — forty times the
+single-size run — with errors from a 50-block jackknife.
+
+**Model.** `src/fss_fit.py` fits both observables jointly, with `f` and `g`
+expanded to second order in `x`:
+
+```
+U(T, L)      =  U* + u₁ x + u₂ x²
+⟨|m|⟩(T, L)  =  L^(−β/ν) (g₀ + g₁ x + g₂ x²),       x = (T − Tc) L^(1/ν)
+```
+
+The priors are flat on `Tc ∈ (2.0, 2.6)`, `ν ∈ (0.5, 2)`, `β/ν ∈ (0, 0.5)` and
+on the six expansion coefficients, so none of the exact values is encoded.
+Each observable has a discrepancy term, as in Section 8. The likelihood is
+linear in the six coefficients, which are integrated out analytically; the
+remaining five parameters are sampled with adaptive Metropolis (Haario,
+Saksman & Tamminen 2001), 4 chains × 10 000 draws, `R̂ = 1.00`, `ESS_bulk > 3 000`
+for every parameter.
+
+The fit uses `L = 16, 32, 64` and `T ∈ [2.23, 2.31]`. The smallest lattice is
+left out because corrections to scaling are largest there, and the window is
+the widest in which both discrepancy terms are consistent with zero, i.e. the
+quadratic scaling functions describe the data within their errors. Neither
+criterion uses the exact values.
+
+![Finite-size scaling](figures/fss.png)
+
+Panel (a) shows the Binder curves crossing; panels (b) and (c) show that,
+with the fitted `Tc`, `ν` and `β/ν`, the points from all sizes fall on a single
+curve. Hollow points lie outside the fitted sizes or window.
+
+| Parameter | Posterior mean | 95% HDI | Exact |
+|---|---|---|---|
+| `Tc` | **2.268** | [2.265, 2.271] | 2.2692 |
+| `ν` | **0.98** | [0.92, 1.05] | 1 |
+| `β = ν · (β/ν)` | **0.113** | [0.101, 0.126] | 0.125 |
+| `U*` | **0.613** | [0.610, 0.616] | 0.6107 |
+
+All four HDIs contain the exact values, `β` near the upper edge of its
+interval. As a model-free check, the crossing of the Binder curves for
+`L = 32` and `64` lies at `T = 2.264 ± 0.005`.
+
+**How much do these numbers depend on the choices above?**
+`scripts/fss_systematics.py` refits with other size sets and windows:
+
+| Sizes | `T` window | `Tc` | `ν` | `β` |
+|---|---|---|---|---|
+| 16, 32, 64 (**used**) | [2.23, 2.31] | 2.268 [2.265, 2.271] | 0.98 [0.92, 1.05] | 0.113 [0.101, 0.126] |
+| 8, 16, 32, 64 | [2.23, 2.31] | 2.268 [2.266, 2.270] | 0.95 [0.92, 0.99] | 0.112 [0.106, 0.118] |
+| 16, 32, 64 | [2.20, 2.34] | 2.263 [2.258, 2.268] | 1.14 [1.07, 1.22] | 0.115 [0.102, 0.129] |
+| 8, 16, 32, 64 | [2.20, 2.34] | 2.265 [2.262, 2.268] | 1.06 [1.03, 1.10] | 0.121 [0.115, 0.127] |
+| 16, 32, 64 | [2.245, 2.295] | 2.268 [2.261, 2.274] | 1.25 [1.00, 1.59] | 0.146 [0.099, 0.203] |
+| 32, 64 | [2.23, 2.31] | 2.255 [2.234, 2.269] | 1.39 [1.02, 1.89] | 0.088 [0.021, 0.138] |
+
+`Tc` is stable to `±0.005` across every choice. `ν` and `β` are not: they move
+by more than their statistical uncertainty, and several HDIs exclude the exact
+values. That spread is the systematic error of the analysis — corrections to
+scaling, the truncated expansion of `f` and `g`, and Monte Carlo errors that
+the jackknife may underestimate for `L = 64`, where the autocorrelation time
+near `Tc` is a few thousand sweeps. A statistical HDI from one configuration
+understates the real uncertainty in the exponents, which is closer to
+`ν ≈ 0.95–1.15` and `β ≈ 0.11–0.12` for the configurations that use the
+full window of informative data.
+
+## 13 · Comparison with Onsager's exact solution
 
 For the 2D Ising model on an *infinite* lattice, the critical parameters were
-derived analytically by Onsager in 1944:
+derived analytically by Onsager (1944) and Yang (1952):
 
 ```
 Tc   =   2 / ln(1 + √2)   ≈   2.2692
 β    =   1/8              =   0.125
+ν    =   1
 ```
 
-Our inferred values (posterior mean ± posterior sd):
+| Method | `Tc` (95% HDI) | `β` (95% HDI) | Exact in HDI? |
+|---|---|---|---|
+| Single lattice, `L = 32`, power law (Sections 8–11) | 2.367 [2.333, 2.439] | 0.094 [0.048, 0.152] | `Tc` no · `β` yes, but not robust |
+| Finite-size scaling, `L = 16–64` (Section 12) | 2.268 [2.265, 2.271] | 0.113 [0.101, 0.126] | both yes |
 
-| Parameter | Inferred | 95% HDI | Exact | Δ | Δ relative | Status |
-|---|---|---|---|---|---|---|
-| `Tc` | **2.363 ± 0.027** | [2.333, 2.416] | 2.2692 | `+0.094` | `+4.1 %` | HDI does **not** contain exact — see below |
-| `β`  | **0.090 ± 0.020** | [0.054, 0.130] | 0.125 | `−0.035` | `−28 %` | HDI contains exact  ✓ |
-| `σ`  | 0.109 ± 0.017 | [0.079, 0.142] | — | — | — | Gaussian noise scale |
+The single-size fit is not a usable estimator of either quantity: its `Tc` is
+off by `+0.1`, and its `β` interval is wide and moves with the fit window.
+Finite-size scaling recovers `Tc` to within `0.001` and `β` to within its
+uncertainty, using the same simulator and the same kind of Bayesian model —
+the difference is that it models how the finite lattice distorts the
+transition instead of ignoring it.
 
-The critical exponent is recovered within uncertainty (its 95% HDI contains
-the Onsager value). The `Tc` posterior is shifted upward by the `+4.1 %` shown
-in the table; that offset is **not** a bug — it is the finite-size effect
-explained below.
-
-### Why Tc is shifted
-
-Onsager's value is for an infinite lattice. We simulated on a `32×32` lattice,
-which is small enough that the correlation length at the transition hits the
-boundaries. Finite-size scaling theory (Ferrenberg & Landau 1991) predicts
-
-```
-Tc(N)  −  Tc(∞)   ∝   1 / N
-```
-
-and empirically the apparent transition sits at a slightly higher temperature
-on finite systems. For `N = 32` a shift of order `+0.1`–`+0.15` is exactly
-what is expected. The experiment is doing the right thing; it is the *finite
-lattice* that shifts `Tc`, not the sampler. Section 13 shows how to shrink
-the shift by enlarging the lattice.
-
-## 12 · Reproducing the experiment
+## 14 · Reproducing the experiment
 
 ```bash
 pip install -r requirements.txt
 
-# Option A — full pipeline end-to-end
+# Option A — full pipeline end-to-end (about 11 minutes)
 python main.py
+python main.py --reuse-fss      # skip the finite-size-scaling simulation if data/fss.csv exists
 
 # Option B — step by step
 python -m src.metropolis --out data/magnetization.csv --size 32 --n-temps 25
-python -m src.bayesian   --input data/magnetization.csv --output data/trace.nc \
-                         --backend numpy --draws 5000 --tune 1000 --chains 4
+python -m src.bayesian   --input data/magnetization.csv --output data/trace.nc
+python -m src.fss        --sizes 8 16 32 64 --out data/fss.csv
+python -m src.fss_fit    --csv data/fss.csv
 python -m src.plots      --csv data/magnetization.csv --trace data/trace.nc \
                          --out-dir figures --lattice-size 32
+
+# Section 11 and Section 12 tables
+python -m scripts.model_comparison --csv data/magnetization.csv
+python -m scripts.fss_systematics  --csv data/fss.csv
 ```
 
-Typical runtimes on a modern laptop (no C compiler):
+Every simulation is seeded (`src/metropolis.py::_seed` seeds the RNG inside
+Numba's compiled code), so these commands reproduce the numbers above exactly.
+
+Typical runtimes on a laptop CPU:
 
 | Stage | Time |
 |---|---|
-| Simulation (32×32, 25 temperatures, Numba) | 30–90 s |
-| MCMC (NumPy backend, 4 chains × 5000 draws) | 30–90 s |
+| Single-size simulation (32×32, 25 temperatures) | ~10 s |
+| Single-size MCMC (4 chains × 5000 draws) | a few seconds |
+| Finite-size-scaling simulation (L = 8–64, 15 temperatures) | ~10 min |
+| Finite-size-scaling fit | ~15 s |
 | Figures | < 5 s |
 
-A companion notebook `notebooks/explore.ipynb` steps through the same
+A companion notebook `notebooks/explore.ipynb` steps through the single-size
 pipeline interactively with intermediate prints.
 
-## 13 · Optional follow-ups
+## 15 · Possible extensions
 
-**Enlarge the lattice.** The finite-size shift in `Tc` shrinks as `1/N`. A
-64×64 or 128×128 run pushes the posterior closer to Onsager's value at a
-proportionally higher compute cost:
+**A cluster algorithm.** Swendsen–Wang or Wolff updates remove most of the
+critical slowing down of Section 7, which would allow larger lattices
+(`L = 128, 256`) near `Tc` at the same cost and shrink the systematic spread
+of `ν` and `β` in Section 12.
 
-```bash
-python -m src.metropolis --out data/magnetization_64.csv --size 64 --n-temps 25
-python -m src.bayesian   --input data/magnetization_64.csv --output data/trace_64.nc
-python -m src.plots      --csv data/magnetization_64.csv --trace data/trace_64.nc \
-                         --out-dir figures_64 --lattice-size 64
-```
+**Corrections to scaling.** Adding the leading correction term `L^(−ω)` to
+the scaling functions would let the fit use the small lattices without
+biasing the exponents.
 
-**Use NUTS instead of MH.** Switch to the gradient-based sampler (requires
-PyMC and a working PyTensor C backend):
-
-```bash
-python -m src.bayesian --backend pymc
-```
-
-Expect roughly 5× fewer draws for the same ESS.
-
-## 14 · File map
+## 16 · File map
 
 ```
 01-ising-bayesian/
@@ -496,9 +632,13 @@ Expect roughly 5× fewer draws for the same ESS.
 ├── src/
 │   ├── __init__.py
 │   ├── metropolis.py            # Numba-accelerated Metropolis simulator
-│   ├── bayesian.py              # NumPy MH + PyMC backends
+│   ├── bayesian.py              # single-size model: NumPy MH + PyMC backends
+│   ├── fss.py                   # finite-size-scaling data: <|m|> and Binder cumulant
+│   ├── fss_fit.py               # Bayesian finite-size-scaling fit
 │   └── plots.py                 # static figures
 ├── scripts/
+│   ├── model_comparison.py      # Section 11 table, Onsager check, free-amplitude fit
+│   ├── fss_systematics.py       # Section 12 systematics table
 │   ├── summarize.py             # posterior summary → JSON
 │   └── export_json.py           # arrays → JSON for the portfolio page
 ├── notebooks/
@@ -507,13 +647,14 @@ Expect roughly 5× fewer draws for the same ESS.
 │   ├── snapshots.png            # two equilibrium lattices, one per phase
 │   ├── magnetization.png        # M(T) curve + fit + Onsager line
 │   ├── observables.png          # energy, susceptibility, specific heat vs. T
-│   ├── posteriors.png           # marginal posteriors of Tc and β
-│   └── trace.png                # per-chain trace plots + diagnostics
+│   ├── posteriors.png           # marginal posteriors of Tc and β (single size)
+│   ├── trace.png                # per-chain trace plots + diagnostics
+│   └── fss.png                  # Binder crossing and data collapse
 ├── data/                        # (gitignored) generated CSV + NetCDF
 └── results/                     # (gitignored) staging for fresh PNGs
 ```
 
-## 15 · References
+## 17 · References
 
 - Onsager, L. (1944). *Crystal Statistics. I. A Two-Dimensional Model with
   an Order-Disorder Transition.* Physical Review **65**, 117.
@@ -542,3 +683,15 @@ Expect roughly 5× fewer draws for the same ESS.
   blocking and jackknife error analysis)
 - Gelman, A. et al. (2013). *Bayesian Data Analysis*, 3rd ed., Chapman &
   Hall.  (general reference for priors, HDIs, and diagnostics)
+- Yang, C. N. (1952). *The Spontaneous Magnetization of a Two-Dimensional
+  Ising Model.* Physical Review **85**, 808.  (exact magnetisation `M(T)`)
+- Fisher, M. E. & Barber, M. N. (1972). *Scaling Theory for Finite-Size
+  Effects in the Critical Region.* Physical Review Letters **28**, 1516.
+- Binder, K. (1981). *Finite size scaling analysis of Ising model block
+  distribution functions.* Zeitschrift für Physik B **43**, 119.  (Binder
+  cumulant)
+- Salas, J. & Sokal, A. D. (2000). *Universal Amplitude Ratios in the
+  Critical Two-Dimensional Ising Model on a Torus.* Journal of Statistical
+  Physics **98**, 551.  (`U* = 0.6107`)
+- Haario, H., Saksman, E. & Tamminen, J. (2001). *An adaptive Metropolis
+  algorithm.* Bernoulli **7**, 223.
