@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/ising-bayesian-demo)
 
-**TL;DR** — Bayesian inference of the 2D Ising critical point from Metropolis Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation for L = 16, 32, 64 gives `Tc = 2.268` (95% HDI `[2.265, 2.271]`; Onsager `2.2692`), `ν = 0.98 [0.92, 1.05]` (exact `1`) and `β = 0.113 [0.101, 0.126]` (exact `1/8`), with flat priors on all three. A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` that the data do not reliably determine: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law does not (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
+**TL;DR** — Bayesian inference of the 2D Ising critical point from Metropolis Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation for L = 16, 32, 64 gives `Tc = 2.268` (95% HDI `[2.265, 2.271]`; Onsager `2.2692`), `ν = 0.98 [0.92, 1.05]` (exact `1`) and `β = 0.113 [0.101, 0.126]` (exact `1/8`), with flat priors on all three. These HDIs are statistical only: refits with other lattice sizes and temperature windows move `ν` over `0.95–1.39` and `β` over `0.088–0.146` (Section 12). A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` that the data do not reliably determine: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law does not (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -547,9 +547,8 @@ values. That spread is the systematic error of the analysis — corrections to
 scaling, the truncated expansion of `f` and `g`, and Monte Carlo errors that
 the jackknife may underestimate for `L = 64`, where the autocorrelation time
 near `Tc` is a few thousand sweeps. A statistical HDI from one configuration
-understates the real uncertainty in the exponents, which is closer to
-`ν ≈ 0.95–1.15` and `β ≈ 0.11–0.12` for the configurations that use the
-full window of informative data.
+therefore understates the real uncertainty in the exponents: across the
+configurations above, `ν` ranges over `0.95–1.39` and `β` over `0.088–0.146`.
 
 ## 13 · Comparison with Onsager's exact solution
 
