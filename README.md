@@ -463,11 +463,12 @@ to `Tc`, where the power law holds, the finite lattice rounds the transition
 and leaves a `1/L` tail; far from `Tc`, where the lattice behaves like an
 infinite one, the power law no longer holds. The `β ≈ 0.09–0.10` of the
 full-range fit is a compromise between those two errors, and its proximity to
-`1/8` is partly luck. The `+0.1` offset in `Tc` has the same origin — the
-nonzero tail above `Tc` pushes the threshold of the piecewise model upward —
-and it is not a finite-size shift of the transition itself: the Binder
-cumulants of `L = 32` and `L = 64` cross within `0.005` of the exact `Tc`
-(Section 12).
+`1/8` is partly luck. The `+0.1` offset in `Tc` is a finite-size effect only
+in that the `1/L` tail above `Tc` exists because the lattice is finite. It is
+not a shift of the transition: the Binder cumulants of `L = 32` and `L = 64`
+cross at `2.264 ± 0.005`, compatible with the exact `Tc` (Section 12). The
+offset comes from the model, which sets `M = 0` above `Tc` and cannot describe
+that tail; the fitted threshold moves up to absorb it.
 
 ## 12 · Finite-size scaling: several lattice sizes
 
