@@ -458,10 +458,40 @@ Freeing the amplitude, `M = B (1 − T/Tc)^β`, does not rescue the fit: on the
 ordered side `Tc` and `β` become degenerate (`Tc` HDI `[2.18, 2.62]`, `R̂ = 1.10`),
 and over the full range the fit moves to `β = 0.38`, far from `1/8`.
 
-The conclusion is that a single lattice cannot determine `β` this way. Close
-to `Tc`, where the power law holds, the finite lattice rounds the transition
-and leaves a `1/L` tail; far from `Tc`, where the lattice behaves like an
-infinite one, the power law no longer holds. The `β ≈ 0.09–0.10` of the
+Fixing the amplitude at its exact value does not rescue it either, and the
+way it fails shows what is missing. To leading order in `t = 1 − T/Tc`,
+Onsager's magnetisation is `M ≈ A t^(1/8)` with `A = (8√2/Tc)^(1/8) = 1.2224`.
+With `A`, `Tc` and `β` all exact, that leading term still misses the exact
+curve by up to `0.081` on `T ∈ [1.5, Tc)` (`0.146` with `A = 1`); at `t = 0.3`
+the exact `M` lies 7% below it. The ordered-side data sit at `t` between
+`0.01` and `0.34`, where the next term of the expansion is not negligible, and
+a fit without that term compensates with the only exponent it has: `β` rises
+to `0.19–0.23` across the four fixed-amplitude fits (both windows, both
+priors), and every HDI excludes `1/8`.
+
+The fix is to include that term. To first order,
+`M_Onsager / (A t^(1/8)) = 1 + b t + O(t²)` with `b = −0.225`, and on `T < 2.25`
+the `O(t²)` remainder is at most `0.97` Monte Carlo standard errors at any data
+point. The model `M = A t^β (1 + b t)` therefore needs no discrepancy term `σ`:
+the likelihood uses the Monte Carlo errors alone, with flat priors on `Tc`,
+`β` and `b`. On the same nine points as above it gives `β = 0.124 [0.122, 0.127]`,
+`Tc = 2.262 [2.244, 2.282]` and `b = −0.227 [−0.233, −0.221]`, with
+`χ² = 8.1` for 6 degrees of freedom: all three compatible with the exact
+`1/8`, `2.269` and `−0.225`. On `T < 2.1` (eight points) the result is the
+same (`β = 0.124`, `Tc = 2.260`).
+
+This is a consistency check, not an independent measurement: `A` and the form
+of the correction come from the exact solution, which a measurement on an
+unsolved model would not have. What it establishes is that the single-size
+data are right and that the failures above come from the functional form.
+The estimate that uses no exact input is the finite-size scaling of
+Section 12.
+
+The conclusion is that a single lattice cannot determine `β` from the leading
+power law alone. Close to `Tc`, where that power law holds, the finite lattice
+rounds the transition and leaves a `1/L` tail; far from `Tc`, where the
+lattice behaves like an infinite one, the leading term is not enough and the
+correction above is needed. The `β ≈ 0.09–0.10` of the
 full-range fit is a compromise between those two errors, and its proximity to
 `1/8` is partly luck. The `+0.1` offset in `Tc` is a finite-size effect only
 in that the `1/L` tail above `Tc` exists because the lattice is finite. It is
@@ -637,7 +667,7 @@ biasing the exponents.
 │   ├── fss_fit.py               # Bayesian finite-size-scaling fit
 │   └── plots.py                 # static figures
 ├── scripts/
-│   ├── model_comparison.py      # Section 11 table, Onsager check, free-amplitude fit
+│   ├── model_comparison.py      # Section 11: table, Onsager check, free/fixed amplitude, correction to scaling
 │   ├── fss_systematics.py       # Section 12 systematics table
 │   ├── summarize.py             # posterior summary → JSON
 │   └── export_json.py           # arrays → JSON for the portfolio page

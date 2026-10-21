@@ -24,7 +24,9 @@ Two further checks go in the same file:
 * fits with the amplitude fixed at its exact value A = (8√2/Tc)^(1/8)
   = 1.2224 (expanding Onsager's M to leading order in 1 − T/Tc), so the
   known prefactor is not a free parameter, plus the largest deviation of
-  A (1 − T/Tc)^(1/8) from Onsager on T ∈ [1.5, Tc) for A = 1 and A = 1.2224.
+  A (1 − T/Tc)^(1/8) from Onsager on T ∈ [1.5, Tc) for A = 1 and A = 1.2224;
+* the leading term with A fixed plus the first correction of Onsager's
+  expansion, M = A t^β (1 + b t) with t = 1 − T/Tc, on the ordered side.
 
 Usage:
     python -m scripts.model_comparison --csv data/magnetization.csv
@@ -85,20 +87,30 @@ def _log_post_amplitude(th, T, M, M_err):
     return -0.5 * np.sum((M - pred) ** 2 / var + np.log(var)) - 0.5 * (sigma / 0.1) ** 2
 
 
-def fit_amplitude(T, M, M_err, *, draws, tune, chains, seed) -> dict:
-    """Random-walk MH for the four-parameter model (heteroscedastic, flat priors)."""
+def _random_walk(log_post, init, step, names, *, draws, tune, chains, seed,
+                 adapt: bool = False) -> dict:
+    """Random-walk MH thinned by 8 (correlated parameters); summary per parameter.
+
+    With `adapt`, the second half of tuning proposes from the covariance of the
+    first half (scaled by 2.38²/d, Haario et al. 2001), which strongly
+    correlated posteriors need; the kept draws use that fixed proposal."""
     import arviz as az
 
     rng = np.random.default_rng(seed)
-    step = np.array([0.01, 0.01, 0.02, 0.005])
-    names = ["Tc", "beta", "B", "sigma"]
-    chains_out = np.empty((chains, draws, 4))
+    chains_out = np.empty((chains, draws, len(names)))
     for c in range(chains):
-        th = np.array([2.3 + 0.05 * rng.random(), 0.12, 1.1, 0.02])
-        lp = _log_post_amplitude(th, T, M, M_err)
+        th = init(rng)
+        lp = log_post(th)
+        chol, history = None, []
         for i in range(-tune * 8, draws * 8):        # thin by 8: four correlated parameters
-            prop = th + rng.normal(0.0, step)
-            lp_new = _log_post_amplitude(prop, T, M, M_err)
+            if adapt and i < 0:
+                history.append(th)
+                if i == -tune * 4:
+                    cov = np.cov(np.array(history).T) * 2.38 ** 2 / len(th)
+                    chol = np.linalg.cholesky(cov + 1e-12 * np.eye(len(th)))
+            prop = th + (chol @ rng.normal(0.0, 1.0, len(th)) if chol is not None
+                         else rng.normal(0.0, step))
+            lp_new = log_post(prop)
             if np.log(rng.random() + 1e-300) < lp_new - lp:
                 th, lp = prop, lp_new
             if i >= 0 and i % 8 == 0:
@@ -109,6 +121,54 @@ def fit_amplitude(T, M, M_err, *, draws, tune, chains, seed) -> dict:
                 "hdi_95": [float(s.loc[p, "hdi_2.5%"]), float(s.loc[p, "hdi_97.5%"])],
                 "r_hat": float(s.loc[p, "r_hat"]), "ess_bulk": float(s.loc[p, "ess_bulk"])}
             for p in names}
+
+
+def fit_amplitude(T, M, M_err, *, draws, tune, chains, seed) -> dict:
+    """Random-walk MH for the four-parameter model (heteroscedastic, flat priors)."""
+    return _random_walk(
+        lambda th: _log_post_amplitude(th, T, M, M_err),
+        lambda rng: np.array([2.3 + 0.05 * rng.random(), 0.12, 1.1, 0.02]),
+        np.array([0.01, 0.01, 0.02, 0.005]), ["Tc", "beta", "B", "sigma"],
+        draws=draws, tune=tune, chains=chains, seed=seed)
+
+
+def _correction_mean(Tc, beta, b, T):
+    t = np.clip(1.0 - T / Tc, 1e-12, 1.0)
+    return np.where(T < Tc, ONSAGER_AMPLITUDE * t ** beta * (1.0 + b * t), 0.0)
+
+
+def _log_post_correction(th, T, M, M_err):
+    # No discrepancy term σ: on T < 2.25 the O(t²) remainder of Onsager's
+    # expansion is at most one Monte Carlo standard error per point, so the
+    # Monte Carlo errors alone are the noise model.
+    Tc, beta, b = th
+    if not (1.0 < Tc < 4.0 and 0.01 < beta < 0.5 and -2.0 < b < 2.0):
+        return -np.inf
+    return -0.5 * np.sum((M - _correction_mean(Tc, beta, b, T)) ** 2 / M_err ** 2)
+
+
+def fit_correction(T, M, M_err, *, draws, tune, chains, seed) -> dict:
+    """M = A t^β (1 + b t), t = 1 − T/Tc, A = 1.2224 fixed: the leading term
+    plus the first correction of Onsager's expansion (flat priors on Tc, β, b;
+    Gaussian likelihood with the Monte Carlo errors)."""
+    r = _random_walk(
+        lambda th: _log_post_correction(th, T, M, M_err),
+        lambda rng: np.array([2.3 + 0.05 * rng.random(), 0.12, -0.2]),
+        np.array([0.005, 0.0007, 0.002]), ["Tc", "beta", "b"],
+        draws=draws, tune=tune, chains=chains, seed=seed, adapt=True)
+    resid = (M - _correction_mean(r["Tc"]["mean"], r["beta"]["mean"], r["b"]["mean"], T)) / M_err
+    r["chi2"], r["dof"] = float(np.sum(resid ** 2)), int(T.size - 3)
+    return r
+
+
+def truncation_remainder(T: np.ndarray) -> tuple[float, np.ndarray]:
+    """Best linear b for M_Onsager / (A t^(1/8)) − 1 on the window, and
+    |M_Onsager − A t^(1/8) (1 + b t)| at each T: what the model leaves out."""
+    t_max = 1.0 - T.min() / TC_EXACT
+    tt = np.linspace(1e-4, t_max, 400)
+    b = np.polyfit(tt, onsager_magnetization(TC_EXACT * (1.0 - tt)) / (ONSAGER_AMPLITUDE * tt ** 0.125) - 1.0, 1)[0]
+    t = 1.0 - T / TC_EXACT
+    return float(b), np.abs(onsager_magnetization(T) - ONSAGER_AMPLITUDE * t ** 0.125 * (1.0 + b * t))
 
 
 def main(csv: str, out: str, draws: int, tune: int, chains: int, seed: int) -> None:
@@ -176,11 +236,27 @@ def main(csv: str, out: str, draws: int, tune: int, chains: int, seed: int) -> N
               f"R̂max {max(r[p]['r_hat'] for p in ['Tc', 'beta', 'sigma']):.2f}", flush=True)
         fixed.append(r)
 
+    correction = []
+    for window, cut in [("T<2.25", 2.25), ("T<2.1", 2.1)]:
+        keep = T < cut
+        r = fit_correction(T[keep], M[keep], M_err[keep], draws=draws, tune=tune,
+                           chains=chains, seed=seed)
+        b_exact, rem = truncation_remainder(T[keep])
+        r.update(window=window, n_points=int(keep.sum()), b_onsager=b_exact,
+                 max_remainder_in_standard_errors=float((rem / M_err[keep]).max()))
+        print(f"[A fixed + correction | {window}] Tc = {r['Tc']['mean']:.3f} HDI {r['Tc']['hdi_95']}  "
+              f"beta = {r['beta']['mean']:.4f} HDI {r['beta']['hdi_95']}  "
+              f"b = {r['b']['mean']:.3f} (Onsager {b_exact:.3f})  chi2/dof {r['chi2']:.1f}/{r['dof']}  "
+              f"remainder <= {r['max_remainder_in_standard_errors']:.2f} SE  "
+              f"R̂max {max(r[p]['r_hat'] for p in ['Tc', 'beta', 'b']):.2f}", flush=True)
+        correction.append(r)
+
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as fh:
         json.dump({"csv": csv, "Tc_exact": TC_EXACT, "beta_exact": 0.125, "fits": rows,
                    "onsager_check": onsager, "free_amplitude_fits": amplitude,
-                   "onsager_amplitude": ONSAGER_AMPLITUDE, "fixed_amplitude_fits": fixed}, fh, indent=2)
+                   "onsager_amplitude": ONSAGER_AMPLITUDE, "fixed_amplitude_fits": fixed,
+                   "correction_to_scaling_fits": correction}, fh, indent=2)
     print(f"\n[ok] {out}")
 
 

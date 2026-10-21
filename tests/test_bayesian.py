@@ -90,3 +90,17 @@ def test_onsager_amplitude_is_the_leading_coefficient():
     M = onsager_magnetization(np.array([TC_EXACT * (1 - eps)]))[0]
     assert abs(M / eps ** 0.125 - ONSAGER_AMPLITUDE) < 1e-5
     assert abs(ONSAGER_AMPLITUDE - 1.2224) < 1e-4
+
+
+def test_correction_to_scaling_recovers_onsager():
+    """On Onsager's exact curve the corrected model M = A t^β (1 + b t) gives
+    β ≈ 1/8, and its truncation remainder is below 3e-4 on T < 2.25."""
+    from scripts.model_comparison import (
+        TC_EXACT, _log_post_correction, onsager_magnetization, truncation_remainder)
+    T = np.linspace(1.5, 2.2, 9)
+    M = onsager_magnetization(T)
+    b, rem = truncation_remainder(T)
+    assert abs(b + 0.225) < 0.005 and rem.max() < 3e-4
+    err = np.full_like(T, 1e-3)
+    truth = _log_post_correction(np.array([TC_EXACT, 0.125, b]), T, M, err)
+    assert truth > _log_post_correction(np.array([TC_EXACT, 0.15, b]), T, M, err)
