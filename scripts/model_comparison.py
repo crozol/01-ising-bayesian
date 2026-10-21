@@ -20,7 +20,11 @@ Two further checks go in the same file:
   problem with the simulation from a problem with the fitted functional form;
 * a fit with a free amplitude, M = B (1 − T/Tc)^β (flat priors on Tc, β, B),
   since the leading asymptotic form of the 2D Ising magnetisation has
-  B ≈ 1.22, not 1.
+  B ≈ 1.22, not 1;
+* fits with the amplitude fixed at its exact value A = (8√2/Tc)^(1/8)
+  = 1.2224 (expanding Onsager's M to leading order in 1 − T/Tc), so the
+  known prefactor is not a free parameter, plus the largest deviation of
+  A (1 − T/Tc)^(1/8) from Onsager on T ∈ [1.5, Tc) for A = 1 and A = 1.2224.
 
 Usage:
     python -m scripts.model_comparison --csv data/magnetization.csv
@@ -38,15 +42,18 @@ import numpy as np
 from src.bayesian import _to_inferencedata, load_data, sample_mh_numpy
 
 TC_EXACT = 2.0 / np.log(1.0 + np.sqrt(2.0))
+# M ≈ A (1 − T/Tc)^(1/8): sinh(2/T) − 1 ≈ (2√2/Tc)(1 − T/Tc) and 1 − sinh^−4 ≈ 4 (sinh − 1)
+ONSAGER_AMPLITUDE = (8.0 * np.sqrt(2.0) / TC_EXACT) ** 0.125
 
 
-def fit(T, M, M_err, *, likelihood, beta_prior, draws, tune, chains, seed) -> dict:
+def fit(T, M, M_err, *, likelihood, beta_prior, draws, tune, chains, seed,
+        amplitude: float = 1.0) -> dict:
     import arviz as az
 
     samples = sample_mh_numpy(
         T, M, draws=draws, tune=tune, chains=chains, seed=seed,
         M_err=M_err if likelihood == "heteroscedastic" else None,
-        beta_prior=beta_prior,
+        beta_prior=beta_prior, amplitude=amplitude,
     )
     idata = _to_inferencedata(samples)
     s = az.summary(idata, var_names=["Tc", "beta", "sigma"], hdi_prob=0.95)
@@ -133,6 +140,10 @@ def main(csv: str, out: str, draws: int, tune: int, chains: int, seed: int) -> N
         "power_law_exact_params_max_abs_deviation":
             float(np.abs(M[ordered] - (1.0 - T[ordered] / TC_EXACT) ** 0.125).max()),
     }
+    T_dense = np.linspace(1.5, TC_EXACT, 2001)[:-1]
+    for name, a in [("amplitude_1", 1.0), ("amplitude_exact", ONSAGER_AMPLITUDE)]:
+        onsager[f"power_law_{name}_vs_onsager_max_abs_deviation_T_1.5_to_Tc"] = float(np.abs(
+            a * (1.0 - T_dense / TC_EXACT) ** 0.125 - onsager_magnetization(T_dense)).max())
     print(f"\n[Onsager, T < 2.25] max |M - M_exact| = {onsager['max_abs_deviation']:.4f} "
           f"({onsager['max_deviation_in_standard_errors']:.1f} standard errors); "
           f"pure power law with exact Tc, beta is off by up to "
@@ -150,10 +161,26 @@ def main(csv: str, out: str, draws: int, tune: int, chains: int, seed: int) -> N
               flush=True)
         amplitude.append(r)
 
+    fixed = []
+    for window, beta_prior in itertools.product(["all", "T<2.25"], ["normal", "flat"]):
+        keep = T < 2.25 if window == "T<2.25" else np.ones_like(T, dtype=bool)
+        r = fit(T[keep], M[keep], M_err[keep], likelihood="heteroscedastic",
+                beta_prior=beta_prior, draws=draws, tune=tune, chains=chains, seed=seed,
+                amplitude=ONSAGER_AMPLITUDE)
+        r.update(window=window, likelihood="heteroscedastic", beta_prior=beta_prior,
+                 n_points=int(keep.sum()))
+        print(f"[A = {ONSAGER_AMPLITUDE:.4f} | {window} | beta {beta_prior}] "
+              f"Tc = {r['Tc']['mean']:.3f} HDI {r['Tc']['hdi_95']}  "
+              f"beta = {r['beta']['mean']:.3f} HDI {r['beta']['hdi_95']}  "
+              f"sigma = {r['sigma']['mean']:.4f}  "
+              f"R̂max {max(r[p]['r_hat'] for p in ['Tc', 'beta', 'sigma']):.2f}", flush=True)
+        fixed.append(r)
+
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as fh:
         json.dump({"csv": csv, "Tc_exact": TC_EXACT, "beta_exact": 0.125, "fits": rows,
-                   "onsager_check": onsager, "free_amplitude_fits": amplitude}, fh, indent=2)
+                   "onsager_check": onsager, "free_amplitude_fits": amplitude,
+                   "onsager_amplitude": ONSAGER_AMPLITUDE, "fixed_amplitude_fits": fixed}, fh, indent=2)
     print(f"\n[ok] {out}")
 
 

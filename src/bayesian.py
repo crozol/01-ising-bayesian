@@ -60,28 +60,30 @@ def _log_prior(Tc: float, beta: float, sigma: float, beta_prior: str = "normal")
 
 def _log_likelihood(
     Tc: float, beta: float, sigma: float, T: np.ndarray, M: np.ndarray,
-    M_err: np.ndarray | None = None,
+    M_err: np.ndarray | None = None, amplitude: float = 1.0,
 ) -> float:
-    """Gaussian likelihood with piecewise power-law mean.
+    """Gaussian likelihood with piecewise power-law mean A (1 − T/Tc)^β,
+    A fixed (1 by default; not a sampled parameter).
 
     Homoscedastic (``M_err is None``): every point has the same noise σ.
     Heteroscedastic: point k has variance M_err[k]² + σ², where M_err[k] is
     its Monte Carlo standard error and σ absorbs whatever the power law does
     not describe (model discrepancy)."""
     arg = np.clip(1.0 - T / Tc, 1e-10, 1.0)
-    M_pred = np.where(T < Tc, arg ** beta, 0.0)
+    M_pred = np.where(T < Tc, amplitude * arg ** beta, 0.0)
     var = sigma ** 2 if M_err is None else M_err ** 2 + sigma ** 2
     var = np.broadcast_to(var, M.shape)
     return float(-0.5 * np.sum((M - M_pred) ** 2 / var) - 0.5 * np.sum(np.log(var)))
 
 
 def _log_posterior(theta: np.ndarray, T: np.ndarray, M: np.ndarray,
-                   M_err: np.ndarray | None = None, beta_prior: str = "normal") -> float:
+                   M_err: np.ndarray | None = None, beta_prior: str = "normal",
+                   amplitude: float = 1.0) -> float:
     Tc, beta, sigma = theta
     lp = _log_prior(Tc, beta, sigma, beta_prior)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + _log_likelihood(Tc, beta, sigma, T, M, M_err)
+    return lp + _log_likelihood(Tc, beta, sigma, T, M, M_err, amplitude)
 
 
 # --------------------------- NumPy MH sampler ---------------------------
@@ -97,6 +99,7 @@ def sample_mh_numpy(
     seed: int = 0,
     M_err: np.ndarray | None = None,
     beta_prior: str = "normal",
+    amplitude: float = 1.0,
 ) -> dict:
     """Random-walk Metropolis-Hastings.
 
@@ -115,13 +118,13 @@ def sample_mh_numpy(
             np.abs(rng.normal(0.12, 0.04)) + 0.01,
             np.abs(rng.normal(0.05, 0.02)) + 1e-3,
         ])
-        log_p = _log_posterior(theta, T, M, M_err, beta_prior)
+        log_p = _log_posterior(theta, T, M, M_err, beta_prior, amplitude)
         accept = 0
         total = 0
 
         for i in range(-tune, draws):
             prop = theta + rng.normal(0.0, step, 3)
-            log_p_new = _log_posterior(prop, T, M, M_err, beta_prior)
+            log_p_new = _log_posterior(prop, T, M, M_err, beta_prior, amplitude)
             total += 1
             if np.log(rng.random() + 1e-300) < log_p_new - log_p:
                 theta = prop

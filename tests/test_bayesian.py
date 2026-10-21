@@ -73,3 +73,20 @@ def test_heteroscedastic_likelihood_downweights_noisy_points():
     quiet = _log_likelihood(2.3, 0.12, 0.01, T, M_obs, M_err=np.array([0.0, 0.0]))
     noisy = _log_likelihood(2.3, 0.12, 0.01, T, M_obs, M_err=np.array([0.0, 0.05]))
     assert noisy > quiet
+
+
+def test_fixed_amplitude_scales_the_power_law():
+    """With amplitude A the likelihood peaks on data generated as A (1 − T/Tc)^β."""
+    T = np.linspace(1.5, 2.2, 10)
+    M = 1.2224 * (1 - T / 2.27) ** 0.125
+    assert _log_likelihood(2.27, 0.125, 0.01, T, M, amplitude=1.2224) > \
+        _log_likelihood(2.27, 0.125, 0.01, T, M)
+
+
+def test_onsager_amplitude_is_the_leading_coefficient():
+    """M_Onsager / (1 − T/Tc)^(1/8) → A = (8√2/Tc)^(1/8) as T → Tc⁻."""
+    from scripts.model_comparison import ONSAGER_AMPLITUDE, TC_EXACT, onsager_magnetization
+    eps = 1e-8
+    M = onsager_magnetization(np.array([TC_EXACT * (1 - eps)]))[0]
+    assert abs(M / eps ** 0.125 - ONSAGER_AMPLITUDE) < 1e-5
+    assert abs(ONSAGER_AMPLITUDE - 1.2224) < 1e-4
