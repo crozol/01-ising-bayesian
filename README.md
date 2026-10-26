@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/01-ising-bayesian.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/ising-bayesian-demo)
 
-**TL;DR** — Bayesian inference of the 2D Ising critical point from Metropolis Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation for L = 16, 32, 64 gives `Tc = 2.268` (95% HDI `[2.265, 2.271]`; Onsager `2.2692`), `ν = 0.98 [0.92, 1.05]` (exact `1`) and `β = 0.113 [0.101, 0.126]` (exact `1/8`), with flat priors on all three. These HDIs are statistical only: refits with other lattice sizes and temperature windows move `ν` over `0.95–1.39` and `β` over `0.088–0.146` (Section 12). A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` near `1/8` only through two compensating errors: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law is only its leading term; adding the first correction of Onsager's expansion, the same data give `β = 0.124 [0.122, 0.127]` (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
+**TL;DR** — Bayesian inference of the 2D Ising critical point from Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation, on Wolff cluster data for L = 32, 64, 128, gives `Tc = 2.2691(1)(1)` (Onsager `2.26919`), `ν = 0.981(10)(20)` (exact `1`) and `β = 0.1220(15)(24)` (exact `1/8`), with statistical and systematic errors and flat priors on all three. The fit range is the widest that passes a χ² goodness-of-fit test (`Q = 0.22`), the systematic error is the spread of the variations that also pass it, and the statistical interval alone would exclude `β = 1/8` (Section 12). A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` near `1/8` only through two compensating errors: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law is only its leading term; adding the first correction of Onsager's expansion, the same data give `β = 0.124 [0.122, 0.127]` (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
 
 A numerical experiment: simulate a grid of interacting magnetic spins, observe
 how its macroscopic state changes with temperature, and then try to recover the
@@ -65,7 +65,7 @@ repeat the inference with several lattice sizes (finite-size scaling).
 | Component | What it does in this experiment |
 |---|---|
 | Python 3.11+, NumPy | Array arithmetic and base numerics |
-| Numba (`@njit`) | JIT-compiles the Metropolis inner loop (~50× speed-up) |
+| Numba (`@njit`) | JIT-compiles the Metropolis and Wolff inner loops (~50× speed-up for Metropolis) |
 | SciPy (`curve_fit`) | Smooth phenomenological curve drawn through the `M(T)` data in the figure |
 | NumPy MCMC samplers | Random-walk Metropolis-Hastings (single size) and adaptive Metropolis (finite-size scaling) |
 | ArviZ | Posterior summaries, HDIs, `R̂`, ESS |
@@ -73,8 +73,8 @@ repeat the inference with several lattice sizes (finite-size scaling).
 | Matplotlib | Static figures |
 
 No GPU is needed. The single-size pipeline runs in under a minute on a laptop;
-the finite-size-scaling simulation takes about ten minutes, dominated by the
-64×64 lattice.
+the finite-size-scaling simulation with the Wolff algorithm takes about an hour,
+dominated by the 128×128 lattice.
 
 ## 3 · Background: what is the 2D Ising model?
 
@@ -296,7 +296,7 @@ their error bars balloon in the critical region while `⟨ε⟩` stays clean. Th
 block-jackknife bars (Newman & Barkema 1999) make this honest: the secondary bump
 sits well within its own uncertainty. The standard cure is a cluster algorithm
 (Swendsen–Wang 1987; Wolff 1989), which updates whole correlated domains at
-once — a natural extension, not used here.
+once; Section 12 uses the Wolff algorithm for the finite-size-scaling data.
 
 ## 8 · Quantitative analysis: Bayesian inference of Tc and β
 
@@ -495,8 +495,8 @@ correction above is needed. The `β ≈ 0.09–0.10` of the
 full-range fit is a compromise between those two errors, and its proximity to
 `1/8` is partly luck. The `+0.1` offset in `Tc` is a finite-size effect only
 in that the `1/L` tail above `Tc` exists because the lattice is finite. It is
-not a shift of the transition: the Binder cumulants of `L = 32` and `L = 64`
-cross at `2.264 ± 0.005`, compatible with the exact `Tc` (Section 12). The
+not a shift of the transition: finite-size scaling of several lattices gives
+`Tc = 2.2691(1)(1)`, compatible with the exact value (Section 12). The
 offset comes from the model, which sets `M = 0` above `Tc` and cannot describe
 that tail; the fitted threshold moves up to absorb it.
 
@@ -515,10 +515,32 @@ observables are used:
 - the **magnetisation**, `⟨|m|⟩(T, L) = L^(−β/ν) g(x)`, whose size dependence
   at `Tc` gives the ratio `β/ν`.
 
-**Data.** `src/fss.py` runs `L = 8, 16, 32, 64` at 15 temperatures in
-`[2.20, 2.34]`. Metropolis decorrelates slowly near `Tc` (Section 7), so each
-point uses 20 000 burn-in and 200 000 measured sweeps — forty times the
-single-size run — with errors from a 50-block jackknife.
+**Data.** `src/fss.py --algorithm wolff` runs `L = 16, 32, 64, 128` at 15
+temperatures in `[2.20, 2.34]`, with 20 000 burn-in and 200 000 measurements
+per point, each a fixed number of cluster updates that flips about `L²` spins
+(one sweep's worth; `src/wolff.py`). Errors come from a block jackknife whose
+blocks are at least 20 integrated autocorrelation times `τ_int` long
+(`src/autocorr.py`, with Sokal's automatic window); `τ_int` is measured at
+every point.
+
+**Why the Wolff algorithm.** Local Metropolis updates decorrelate slowly near
+`Tc` (critical slowing down). Measured `τ_int` of `|m|` at `T = 2.27`, in
+sweeps:
+
+| `L` | 8 | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|---|
+| Metropolis | 9.9 | 42 | 159 | 1 700 ± 800 | — |
+| Wolff (single cluster) | — | 1.28 | 1.43 | 1.64 | 1.77 |
+
+For Metropolis `τ_int` grows roughly as `L²` (from `L = 8` to `32`), as expected
+for local dynamics (`z ≈ 2.17`, Nightingale & Blöte 1996); for Wolff it grows
+by a factor `1.4` from `L = 16` to `128` (Wolff 1989). Metropolis chains of
+200 000 sweeps for `L = 8–64` (`data/fss_metropolis_tau.csv`) split into 50
+jackknife blocks give blocks of 4 000 sweeps, about `2.3 τ_int` at `L = 64` near
+`Tc`, too short: with blocks of at least `20 τ_int` the error bars on `⟨|m|⟩` and
+`U` grow by up to `1.6×`. The Metropolis data are not used below; the Wolff
+means agree with them within the corrected errors (`χ²/n = 0.7–1.4` per size),
+with errors 4 to 50 times smaller.
 
 **Model.** `src/fss_fit.py` fits both observables jointly, with `f` and `g`
 expanded to second order in `x`:
@@ -533,14 +555,44 @@ on the six expansion coefficients, so none of the exact values is encoded.
 Each observable has a discrepancy term, as in Section 8. The likelihood is
 linear in the six coefficients, which are integrated out analytically; the
 remaining five parameters are sampled with adaptive Metropolis (Haario,
-Saksman & Tamminen 2001), 4 chains × 10 000 draws, `R̂ = 1.00`, `ESS_bulk > 3 000`
-for every parameter.
+Saksman & Tamminen 2001), 4 chains × 10 000 draws, `R̂ ≤ 1.002`,
+`ESS_bulk > 2 600` for every parameter.
 
-The fit uses `L = 16, 32, 64` and `T ∈ [2.23, 2.31]`. The smallest lattice is
-left out because corrections to scaling are largest there, and the window is
-the widest in which both discrepancy terms are consistent with zero, i.e. the
-quadratic scaling functions describe the data within their errors. Neither
-criterion uses the exact values.
+**Fit window.** The expansion holds for small `|x|`, so the window is fixed in
+`x`, not in `T`: a fixed `T` window reaches `|x| ∝ L^(1/ν)`, twice as far on each
+doubling of `L` (`[2.23, 2.31]` reaches `|x| = 2.6` at `L = 64` and `5.2` at
+`L = 128`). Points are kept when `|T − T*| L^(1/ν₀) ≤ x_max`, with `T* = 2.2684`,
+the Binder crossing of `L = 64` and `128`, and `ν₀ = 1.04`, from the growth of
+the slope `dU/dT` at `T*` as `L^(1/ν)`; neither uses the exact values. The range
+of the fit (`x_max` and the smallest lattice `L_min`) is chosen by the classical
+goodness-of-fit test: the same model fitted by weighted least squares on the
+Monte Carlo errors alone, without discrepancy terms, gives `χ²_min` with
+`2N − 9` degrees of freedom for quadratic `f` and `g`, and the probability `Q`
+of a larger `χ²`; the errors in the table come from the curvature of `χ²` at
+its minimum (`Δχ² = 1`):
+
+| Sizes | `\|x\| ≤` | Order of `f`, `g` | Points | `χ²/dof` | `Q` | `Tc` | `ν` | `β` |
+|---|---|---|---|---|---|---|---|---|
+| 16, 32, 64, 128 | 1 | 2 | 26 | 78.4/43 | 8 × 10⁻⁴ | 2.26887(7) | 0.977(3) | 0.1198(5) |
+| 16, 32, 64, 128 | 1.5 | 2 | 34 | 235.1/59 | < 10⁻²⁰ | 2.26890(6) | 0.980(2) | 0.1202(4) |
+| **32, 64, 128** | **1** | **2** | **13** | **21.1/17** | **0.22** | **2.26908(10)** | **0.980(7)** | **0.1217(10)** |
+| 32, 64, 128 | 1.5 | 2 | 19 | 165.9/29 | < 10⁻²⁰ | 2.26898(8) | 0.989(3) | 0.1214(6) |
+| 32, 64, 128 | 2 | 2 | 26 | 1250.8/43 | < 10⁻²⁰ | 2.26903(7) | 0.978(2) | 0.1214(4) |
+| 64, 128 | 1 | 2 | 6 | 5.5/3 | 0.14 | 2.26904(17) | 1.000(18) | 0.1241(22) |
+| 64, 128 | 1.5 | 2 | 10 | 231.4/11 | < 10⁻²⁰ | 2.26879(14) | 1.010(7) | 0.1215(15) |
+| 32, 64, 128 | 1 | 3 | 13 | 17.7/15 | 0.28 | 2.26900(11) | 0.982(7) | 0.1209(11) |
+| 32, 64, 128 | 1 | 4 | 13 | 15.8/13 | 0.26 | 2.26901(11) | 0.984(8) | 0.1215(12) |
+| 32, 64, 128 | 1.5 | 3 | 19 | 46.5/27 | 0.011 | 2.26902(8) | 0.989(3) | 0.1220(6) |
+| 32, 64, 128 | 1.5 | 4 | 19 | 45.4/25 | 8 × 10⁻³ | 2.26902(8) | 0.988(3) | 0.1219(6) |
+
+The test rejects every window wider than `|x| ≤ 1` and every fit that includes
+`L = 16`. Cubic and quartic `f` and `g` do not rescue the next wider window
+(`L ≥ 32`, `|x| ≤ 1.5`: `Q = 0.011` and `0.008`), so the misfit is not only the
+truncated expansion: with errors of `10⁻⁵` to `10⁻³`, the corrections to scaling
+that the leading-order form leaves out are resolved. The accepted fit is
+`L = 32, 64, 128` with `|x| ≤ 1` (7, 4 and 2 temperatures; `χ²/dof = 21.1/17`,
+`Q = 0.22`), and in the Bayesian fit of that window both discrepancy terms are
+consistent with zero.
 
 ![Finite-size scaling](figures/fss.png)
 
@@ -548,37 +600,28 @@ Panel (a) shows the Binder curves crossing; panels (b) and (c) show that,
 with the fitted `Tc`, `ν` and `β/ν`, the points from all sizes fall on a single
 curve. Hollow points lie outside the fitted sizes or window.
 
-| Parameter | Posterior mean | 95% HDI | Exact |
+| Parameter | Estimate (stat)(syst) | 95% HDI | Exact |
 |---|---|---|---|
-| `Tc` | **2.268** | [2.265, 2.271] | 2.2692 |
-| `ν` | **0.98** | [0.92, 1.05] | 1 |
-| `β = ν · (β/ν)` | **0.113** | [0.101, 0.126] | 0.125 |
-| `U*` | **0.613** | [0.610, 0.616] | 0.6107 |
+| `Tc` | **2.2691(1)(1)** | [2.2689, 2.2693] | 2.26919 |
+| `ν` | **0.981(10)(20)** | [0.960, 1.001] | 1 |
+| `β = ν · (β/ν)` | **0.1220(15)(24)** | [0.1190, 0.1248] | 0.125 |
+| `U*` | **0.6112(3)(3)** | [0.6106, 0.6117] | 0.6107 |
 
-All four HDIs contain the exact values, `β` near the upper edge of its
-interval. As a model-free check, the crossing of the Binder curves for
-`L = 32` and `64` lies at `T = 2.264 ± 0.005`.
+The statistical error is the posterior standard deviation. The systematic
+error is the largest shift of the least-squares minimum, relative to the
+accepted fit, among the variations that also pass the `χ²` test: `L_min = 64`
+(`Q = 0.14`) and cubic or quartic `f`, `g` (`Q = 0.28` and `0.26`). The exact
+values lie within the combined uncertainty (statistical and systematic in
+quadrature): `Tc` at 0.5, `ν` at 0.8, `β` at 1.1 and `U*` at 1.2 standard
+deviations. The statistical HDI alone is too narrow for `β`: it excludes `1/8`.
+As a model-free check, the Binder curves of consecutive sizes cross at
+`2.2666(7)`, `2.2699(5)` and `2.2684(3)`; these straight-line interpolations
+between grid temperatures `0.01` apart scatter by more than their errors.
 
-**How much do these numbers depend on the choices above?**
-`scripts/fss_systematics.py` refits with other size sets and windows:
-
-| Sizes | `T` window | `Tc` | `ν` | `β` |
-|---|---|---|---|---|
-| 16, 32, 64 (**used**) | [2.23, 2.31] | 2.268 [2.265, 2.271] | 0.98 [0.92, 1.05] | 0.113 [0.101, 0.126] |
-| 8, 16, 32, 64 | [2.23, 2.31] | 2.268 [2.266, 2.270] | 0.95 [0.92, 0.99] | 0.112 [0.106, 0.118] |
-| 16, 32, 64 | [2.20, 2.34] | 2.263 [2.258, 2.268] | 1.14 [1.07, 1.22] | 0.115 [0.102, 0.129] |
-| 8, 16, 32, 64 | [2.20, 2.34] | 2.265 [2.262, 2.268] | 1.06 [1.03, 1.10] | 0.121 [0.115, 0.127] |
-| 16, 32, 64 | [2.245, 2.295] | 2.268 [2.261, 2.274] | 1.25 [1.00, 1.59] | 0.146 [0.099, 0.203] |
-| 32, 64 | [2.23, 2.31] | 2.255 [2.234, 2.269] | 1.39 [1.02, 1.89] | 0.088 [0.021, 0.138] |
-
-`Tc` is stable to `±0.005` across every choice. `ν` and `β` are not: they move
-by more than their statistical uncertainty, and several HDIs exclude the exact
-values. That spread is the systematic error of the analysis — corrections to
-scaling, the truncated expansion of `f` and `g`, and Monte Carlo errors that
-the jackknife may underestimate for `L = 64`, where the autocorrelation time
-near `Tc` is a few thousand sweeps. A statistical HDI from one configuration
-therefore understates the real uncertainty in the exponents: across the
-configurations above, `ν` ranges over `0.95–1.39` and `β` over `0.088–0.146`.
+**Limitation.** With a grid of `0.01` in `T`, only 4 temperatures of `L = 64`
+and 2 of `L = 128` fall inside `|x| ≤ 1`. A finer grid near `Tc` for the
+largest lattices would tighten `ν` and `β` and allow corrections to scaling to
+be fitted explicitly instead of being excluded through `L_min`.
 
 ## 13 · Comparison with Onsager's exact solution
 
@@ -594,13 +637,13 @@ Tc   =   2 / ln(1 + √2)   ≈   2.2692
 | Method | `Tc` (95% HDI) | `β` (95% HDI) | Exact in HDI? |
 |---|---|---|---|
 | Single lattice, `L = 32`, power law (Sections 8–11) | 2.368 [2.333, 2.434] | 0.095 [0.049, 0.151] | `Tc` no · `β` yes, but not robust |
-| Finite-size scaling, `L = 16–64` (Section 12) | 2.268 [2.265, 2.271] | 0.113 [0.101, 0.126] | both yes |
+| Finite-size scaling, `L = 32–128` (Section 12) | 2.2691 [2.2689, 2.2693] | 0.1220 [0.1190, 0.1248] | `Tc` yes · `β` no, but within 1.1 σ with the systematic error |
 
 The single-size fit is not a usable estimator of either quantity: its `Tc` is
 off by `+0.1`, and its `β` interval is wide and moves with the fit window.
-Finite-size scaling recovers `Tc` to within `0.001` and `β` to within its
-uncertainty, using the same simulator and the same kind of Bayesian model —
-the difference is that it models how the finite lattice distorts the
+Finite-size scaling recovers `Tc` to within `0.0001` and `β` to within its
+statistical and systematic uncertainty, with the same kind of Bayesian
+model — the difference is that it models how the finite lattice distorts the
 transition instead of ignoring it.
 
 ## 14 · Reproducing the experiment
@@ -608,21 +651,24 @@ transition instead of ignoring it.
 ```bash
 pip install -r requirements.txt
 
-# Option A — full pipeline end-to-end (about 11 minutes)
+# Option A — full pipeline end-to-end (about 1 hour, almost all of it the Wolff simulation)
 python main.py
-python main.py --reuse-fss      # skip the finite-size-scaling simulation if data/fss.csv exists
+python main.py --reuse-fss      # skip the finite-size-scaling simulation if data/fss_wolff.csv exists
 
 # Option B — step by step
 python -m src.metropolis --out data/magnetization.csv --size 32 --n-temps 25
 python -m src.bayesian   --input data/magnetization.csv --output data/trace.nc
-python -m src.fss        --sizes 8 16 32 64 --out data/fss.csv
-python -m src.fss_fit    --csv data/fss.csv
+python -m src.fss        # Wolff, L = 16–128 -> data/fss_wolff.csv
+python -m src.fss_fit    # L = 32–128, |x| <= 1 -> data/fss_summary.json
 python -m src.plots      --csv data/magnetization.csv --trace data/trace.nc \
                          --out-dir figures --lattice-size 32
 
 # Section 11 and Section 12 tables
 python -m scripts.model_comparison --csv data/magnetization.csv
-python -m scripts.fss_systematics  --csv data/fss.csv
+python -m scripts.fss_systematics   # chi2 test and systematics, a few seconds
+
+# Section 12 autocorrelation times with Metropolis
+python -m src.fss --algorithm metropolis --sizes 8 16 32 64 --out data/fss_metropolis_tau.csv
 ```
 
 Every simulation is seeded (`src/metropolis.py::_seed` seeds the RNG inside
@@ -634,23 +680,25 @@ Typical runtimes on a laptop CPU:
 |---|---|
 | Single-size simulation (32×32, 25 temperatures) | ~10 s |
 | Single-size MCMC (4 chains × 50 000 draws) | about 15 s |
-| Finite-size-scaling simulation (L = 8–64, 15 temperatures) | ~10 min |
-| Finite-size-scaling fit | ~15 s |
+| Finite-size-scaling simulation, Wolff (L = 16–128, 15 temperatures) | ~1 h (`L = 128`: ~50 min) |
+| Finite-size-scaling fit | ~30 s |
 | Figures | < 5 s |
+
+The Wolff time is extrapolated from chains a tenth as long.
 
 A companion notebook `notebooks/explore.ipynb` steps through the single-size
 pipeline interactively with intermediate prints.
 
 ## 15 · Possible extensions
 
-**A cluster algorithm.** Swendsen–Wang or Wolff updates remove most of the
-critical slowing down of Section 7, which would allow larger lattices
-(`L = 128, 256`) near `Tc` at the same cost and shrink the systematic spread
-of `ν` and `β` in Section 12.
+**A finer grid and larger lattices.** Steps of `0.0025` in `T` around `T*` for
+`L = 64` and `128`, and `L = 256`, which the Wolff algorithm makes affordable,
+would put more points inside the accepted window of Section 12 and tighten
+`ν` and `β`.
 
 **Corrections to scaling.** Adding the leading correction term `L^(−ω)` to
-the scaling functions would let the fit use the small lattices without
-biasing the exponents.
+the scaling functions would let the fit use `L = 16` and wider windows,
+which the χ² test of Section 12 now rejects.
 
 ## 16 · File map
 
@@ -663,12 +711,14 @@ biasing the exponents.
 │   ├── __init__.py
 │   ├── metropolis.py            # Numba-accelerated Metropolis simulator
 │   ├── bayesian.py              # single-size model: NumPy MH + PyMC backends
-│   ├── fss.py                   # finite-size-scaling data: <|m|> and Binder cumulant
-│   ├── fss_fit.py               # Bayesian finite-size-scaling fit
+│   ├── wolff.py                 # Wolff single-cluster updates
+│   ├── autocorr.py              # integrated autocorrelation time, jackknife block length
+│   ├── fss.py                   # finite-size-scaling data: <|m|>, Binder cumulant, τ_int
+│   ├── fss_fit.py               # Bayesian finite-size-scaling fit and least-squares χ² test
 │   └── plots.py                 # static figures
 ├── scripts/
 │   ├── model_comparison.py      # Section 11: table, Onsager check, free/fixed amplitude, correction to scaling
-│   ├── fss_systematics.py       # Section 12 systematics table
+│   ├── fss_systematics.py       # Section 12 goodness-of-fit and systematics table
 │   ├── summarize.py             # posterior summary → JSON
 │   └── export_json.py           # arrays → JSON for the portfolio page
 ├── notebooks/
@@ -723,5 +773,9 @@ biasing the exponents.
 - Salas, J. & Sokal, A. D. (2000). *Universal Amplitude Ratios in the
   Critical Two-Dimensional Ising Model on a Torus.* Journal of Statistical
   Physics **98**, 551.  (`U* = 0.6107`)
+- Sokal, A. D. (1997). *Monte Carlo Methods in Statistical Mechanics:
+  Foundations and New Algorithms.* In *Functional Integration: Basics and
+  Applications*, NATO ASI Series B **361**, 131. Springer.  (automatic window
+  for `τ_int`)
 - Haario, H., Saksman, E. & Tamminen, J. (2001). *An adaptive Metropolis
   algorithm.* Bernoulli **7**, 223.

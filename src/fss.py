@@ -1,7 +1,7 @@
 """Finite-size-scaling data: magnetisation moments and the Binder cumulant.
 
 For each lattice size L and temperature T near the transition, a long
-Metropolis chain records the magnetisation per site m after every sweep, and
+Markov chain records the magnetisation per site m about once per sweep, and
 the script stores
 
     <|m|>                       order parameter
@@ -12,16 +12,18 @@ function of (T - Tc) L^(1/ν) only, so the curves U(T) for different L cross
 at Tc; <|m|> scales as L^(-β/ν) times a function of the same variable. Both
 are fitted in src/fss_fit.py.
 
-Metropolis decorrelates slowly near Tc (autocorrelation time ~ L^2.17), so the
-chains here are much longer than in the M(T) sweep: 20 000 burn-in and
-200 000 measured sweeps per (L, T) by default. `--algorithm wolff` uses the
-Wolff cluster algorithm instead (src/wolff.py; z ≈ 0.25), measured about
-once per sweep. Each point also records the integrated autocorrelation time
-of |m| and of the energy in sweeps (src/autocorr.py), and by default the
-jackknife blocks are chosen to span at least 20 τ_int.
+The default is the Wolff cluster algorithm (src/wolff.py; z ≈ 0.25),
+measured about once per sweep, for L = 16, 32, 64, 128. `--algorithm
+metropolis` uses single-spin flips instead, which decorrelate slowly near Tc
+(autocorrelation time ~ L^2.17). Both use 20 000 burn-in and 200 000
+measurements per (L, T) by default, much longer than the M(T) sweep. Each
+point also records the integrated autocorrelation time of |m| and of the
+energy in sweeps (src/autocorr.py), and the jackknife blocks are chosen to
+span at least 20 τ_int.
 
 Usage:
-    python -m src.fss --sizes 8 16 32 64 --out data/fss.csv
+    python -m src.fss                                   # Wolff, L = 16-128 -> data/fss_wolff.csv
+    python -m src.fss --algorithm metropolis --sizes 8 16 32 64 --out data/fss_metropolis_tau.csv
 """
 
 from __future__ import annotations
@@ -132,15 +134,15 @@ def run(sizes, temps, *, n_therm: int, n_measure: int, seed: int, out: str,
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--sizes", nargs="+", type=int, default=[8, 16, 32, 64])
+    p.add_argument("--sizes", nargs="+", type=int, default=[16, 32, 64, 128])
     p.add_argument("--t-min", type=float, default=2.20)
     p.add_argument("--t-max", type=float, default=2.34)
     p.add_argument("--n-temps", type=int, default=15)
     p.add_argument("--n-therm", type=int, default=20_000)
     p.add_argument("--n-measure", type=int, default=200_000)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default="data/fss.csv")
-    p.add_argument("--algorithm", choices=["metropolis", "wolff"], default="metropolis")
+    p.add_argument("--out", default="data/fss_wolff.csv")
+    p.add_argument("--algorithm", choices=["metropolis", "wolff"], default="wolff")
     a = p.parse_args()
     run(a.sizes, np.linspace(a.t_min, a.t_max, a.n_temps),
         n_therm=a.n_therm, n_measure=a.n_measure, seed=a.seed, out=a.out,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.fss import _binder, _jackknife, measure
-from src.fss_fit import binder_crossings, log_post, preliminary, sample, scaling_window
+from src.fss_fit import binder_crossings, chi2_fit, log_post, preliminary, sample, scaling_window
 
 
 def test_binder_limits():
@@ -75,3 +75,19 @@ def test_scaling_window_keeps_the_same_x_range_for_every_size():
     assert {int(L): int((d["L"] == L).sum()) for L in (16, 32, 64)} == {16: 9, 32: 7, 64: 3}
     for row in binder_crossings(d, [16, 32, 64], n_boot=20):     # on the shared temperatures
         assert abs(row["T_cross"] - 2.27) < 0.005
+
+
+def test_chi2_fit_of_synthetic_data_is_acceptable_and_recovers_parameters():
+    r = chi2_fit(_synthetic(seed=2))
+    assert abs(r["Tc"] - 2.27) < 0.005
+    assert abs(r["nu"] - 1.0) < 0.1
+    assert r["dof"] == 2 * 27 - 9
+    assert r["Q"] > 1e-3
+
+
+def test_chi2_fit_errors_and_higher_order_scaling_functions():
+    d = _synthetic(seed=2)
+    r2, r3 = chi2_fit(d), chi2_fit(d, order=3)
+    assert 0 < r2["Tc_err"] < 0.005 and 0 < r2["nu_err"] < 0.1 and 0 < r2["beta_err"] < 0.02
+    assert r3["dof"] == r2["dof"] - 2
+    assert r3["chi2"] <= r2["chi2"] + 1e-6                      # nested model fits at least as well

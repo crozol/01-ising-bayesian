@@ -583,10 +583,13 @@ def plot_trace(trace_path: str, out_path: str) -> None:
 # --------------------------- finite-size scaling ---------------------------
 
 def plot_fss(fss_csv: str, fss_trace: str, out_path: str, *,
-             sizes=(16, 32, 64), t_min: float = 2.23, t_max: float = 2.31) -> None:
+             sizes=(16, 32, 64), t_min: float = 2.23, t_max: float = 2.31,
+             x_window: tuple[float, float, float] | None = None) -> None:
     """Binder cumulant U(T) for every L (crossing at Tc), and the data collapse
     of U and of <|m|> L^(β/ν) against x = (T − Tc) L^(1/ν) at the posterior
-    mean. Points outside the fitted sizes/window are drawn hollow."""
+    mean. Points outside the fitted sizes/window are drawn hollow; x_window =
+    (x_max, T*, ν₀) marks the window |T − T*| L^(1/ν₀) ≤ x_max instead of
+    [t_min, t_max]."""
     import arviz as az
     import matplotlib.pyplot as plt
 
@@ -601,7 +604,11 @@ def plot_fss(fss_csv: str, fss_trace: str, out_path: str, *,
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.6))
     for L in all_L:
         s = d[d["L"] == L]
-        used = (L in sizes) & (s["T"] >= t_min - 1e-9) & (s["T"] <= t_max + 1e-9)
+        if x_window is None:
+            used = (L in sizes) & (s["T"] >= t_min - 1e-9) & (s["T"] <= t_max + 1e-9)
+        else:
+            x_max, t_star, nu0 = x_window
+            used = (L in sizes) & (np.abs((s["T"] - t_star) * L ** (1 / nu0)) <= x_max + 1e-9)
         x = (s["T"] - Tc) * L ** (1 / nu)
         for ax, X, Y, E in [(axes[0], s["T"], s["U"], s["U_err"]),
                             (axes[1], x, s["U"], s["U_err"]),

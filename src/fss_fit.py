@@ -21,26 +21,26 @@ integrated out analytically (Gaussian integral, flat prior), and only
 (Haario, Saksman & Tamminen 2001). The coefficients — U* among them — are
 then drawn from their exact conditional Gaussian for each posterior sample.
 
-Default fit: L = 16, 32, 64 and T in [2.23, 2.31]. The smallest lattice is
-left out because corrections to scaling are largest there, and the window
-is the widest in which the fitted discrepancy terms σ_U, σ_M are consistent
-with zero (the quadratic scaling functions describe the data within their
-errors); neither criterion looks at the exact values. scripts/fss_systematics.py
-refits with other size sets and windows to show how much the estimates move.
+The window is fixed in the scaling variable, not in T: a fixed T window
+reaches |x| ∝ L^(1/ν) on the largest lattices, where the expansion no longer
+holds. The points kept satisfy |T − T*| L^(1/ν₀) ≤ x_max, the same part of the
+scaling functions for every size; T* and ν₀ are model-free: T* is the U
+crossing of the two largest sizes, and ν₀ follows from dU/dT|T* ∝ L^(1/ν).
 
-A window of fixed width in T reaches |x| ∝ L^(1/ν) on the largest lattices,
-where the quadratic scaling functions no longer hold. --x-max instead keeps
-the points with |T − T*| L^(1/ν₀) ≤ x_max, the same part of the scaling
-functions for every size. T* and ν₀ are model-free: T* is the U crossing of
-the two largest sizes, and ν₀ follows from dU/dT|T* ∝ L^(1/ν).
+Default fit: Wolff data, L = 32, 64, 128 and |x| ≤ 1, the widest range that
+passes the classical goodness-of-fit test (chi2_fit: weighted least squares
+on the Monte Carlo errors alone, Q = 0.22); wider windows and L = 16 are
+rejected. Neither choice looks at the exact values. scripts/fss_systematics.py
+tabulates the test for other size sets, windows and orders of f and g.
+--t-min/--t-max select a window in T instead.
 
 As a model-free cross-check, the crossing temperature of U(T) for each pair
 of consecutive sizes is located by linear interpolation, with a bootstrap
 error from the jackknife errors of U.
 
 Usage:
-    python -m src.fss_fit --csv data/fss.csv
-    python -m src.fss_fit --csv data/fss_wolff.csv --sizes 16 32 64 128 --x-max 2
+    python -m src.fss_fit                                     # data/fss_wolff.csv, L = 32-128, |x| <= 1
+    python -m src.fss_fit --csv data/fss.csv --sizes 16 32 64 --t-min 2.23 --t-max 2.31
 """
 
 from __future__ import annotations
@@ -92,10 +92,10 @@ def scaling_window(d, x_max, t_star, nu0):
     return {k: v[keep] for k, v in d.items()}
 
 
-def _design(th, d):
+def _design(th, d, order=2):
     Tc, nu, b = th[:3]
     x = (d["T"] - Tc) * d["L"] ** (1.0 / nu)
-    A = np.stack([np.ones_like(x), x, x ** 2], 1)
+    A = np.stack([x ** k for k in range(order + 1)], 1)
     return A, d["L"] ** (-b)
 
 
@@ -109,6 +109,49 @@ def _gaussian_block(A, y, v):
     _, logdet = np.linalg.slogdet(F)
     ll = -0.5 * (np.sum(r ** 2 / v) + np.sum(np.log(v)) + logdet)
     return ll, c, F
+
+
+def _chi2(th, d, order=2, return_U0=False):
+    A, scale = _design(th, d, order)
+    cU = _gaussian_block(A, d["U"], d["U_err"] ** 2)[1]
+    cM = _gaussian_block(A * scale[:, None], d["M_abs"], d["M_abs_err"] ** 2)[1]
+    chi2 = (np.sum((d["U"] - A @ cU) ** 2 / d["U_err"] ** 2)
+            + np.sum((d["M_abs"] - A * scale[:, None] @ cM) ** 2 / d["M_abs_err"] ** 2))
+    return (chi2, cU[0]) if return_U0 else chi2
+
+
+def _hessian(f, x, h):
+    n = len(x)
+    E = np.diag(h)
+    H = np.empty((n, n))
+    for i in range(n):
+        for j in range(n):
+            H[i, j] = (f(x + E[i] + E[j]) - f(x + E[i] - E[j])
+                       - f(x - E[i] + E[j]) + f(x - E[i] - E[j])) / (4 * h[i] * h[j])
+    return H
+
+
+def chi2_fit(d, start=(2.27, 1.0, 0.12), order=2):
+    """Classical goodness of fit: weighted least squares of both scaling forms on
+    the Monte Carlo errors alone (σ_U = σ_M = 0), with f and g of the given
+    order, minimised over (Tc, ν, β/ν) with the linear coefficients solved
+    exactly. Returns the minimum with errors from the curvature of χ² there
+    (Δχ² = 1), χ²_min, the degrees of freedom 2N − 3 − 2(order + 1) and
+    Q = P(χ²_dof ≥ χ²_min)."""
+    from scipy import optimize, stats
+
+    f = lambda th: _chi2(th, d, order)  # noqa: E731
+    r = optimize.minimize(f, start, method="Nelder-Mead",
+                          options={"xatol": 1e-8, "fatol": 1e-9, "maxiter": 40_000})
+    Tc, nu, b = r.x
+    cov = 2 * np.linalg.inv(_hessian(f, r.x, np.array([2e-5, 2e-3, 2e-4])))
+    grad_beta = np.array([0.0, b, nu])                     # β = ν · (β/ν)
+    dof = 2 * len(d["L"]) - 3 - 2 * (order + 1)
+    return {"order": order, "Tc": float(Tc), "Tc_err": float(np.sqrt(cov[0, 0])),
+            "nu": float(nu), "nu_err": float(np.sqrt(cov[1, 1])),
+            "beta": float(nu * b), "beta_err": float(np.sqrt(grad_beta @ cov @ grad_beta)),
+            "U0": float(_chi2(r.x, d, order, return_U0=True)[1]),
+            "chi2": float(r.fun), "dof": int(dof), "Q": float(stats.chi2.sf(r.fun, dof))}
 
 
 def log_post(th, d, return_blocks=False):
@@ -208,9 +251,12 @@ def summarize(samples, coefs, d, sizes, out_json, trace_out=None):
                                 "hdi_95": [float(s.loc[p, "hdi_2.5%"]), float(s.loc[p, "hdi_97.5%"])],
                                 "r_hat": float(s.loc[p, "r_hat"]),
                                 "ess_bulk": float(s.loc[p, "ess_bulk"])} for p in s.index},
-              "binder_crossings": binder_crossings(d, sizes)}
+              "binder_crossings": binder_crossings(d, sizes),
+              "least_squares": chi2_fit(d, [float(s.loc[p, "mean"]) for p in ("Tc", "nu", "b")])}
     for c in result["binder_crossings"]:
         print(f"  U crossing L={c['L1']}/{c['L2']}: T = {c['T_cross']:.4f} ± {c['err']:.4f}")
+    ls = result["least_squares"]
+    print(f"  least squares (sigma = 0): chi2/dof = {ls['chi2']:.1f}/{ls['dof']}, Q = {ls['Q']:.2g}")
     Path(out_json).parent.mkdir(parents=True, exist_ok=True)
     with open(out_json, "w") as fh:
         json.dump(result, fh, indent=2)
@@ -221,12 +267,12 @@ def summarize(samples, coefs, d, sizes, out_json, trace_out=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--csv", default="data/fss.csv")
-    p.add_argument("--sizes", nargs="+", type=int, default=[16, 32, 64])
-    p.add_argument("--t-min", type=float, default=2.23)
-    p.add_argument("--t-max", type=float, default=2.31)
-    p.add_argument("--x-max", type=float, default=None,
-                   help="window |T - T*| L^(1/nu0) <= x_max in place of --t-min/--t-max")
+    p.add_argument("--csv", default="data/fss_wolff.csv")
+    p.add_argument("--sizes", nargs="+", type=int, default=[32, 64, 128])
+    p.add_argument("--x-max", type=float, default=1.0,
+                   help="window |T - T*| L^(1/nu0) <= x_max")
+    p.add_argument("--t-min", type=float, default=None, help="window in T instead of --x-max")
+    p.add_argument("--t-max", type=float, default=None)
     p.add_argument("--draws", type=int, default=10_000)
     p.add_argument("--tune", type=int, default=10_000)
     p.add_argument("--chains", type=int, default=4)
@@ -234,7 +280,7 @@ if __name__ == "__main__":
     p.add_argument("--out", default="data/fss_summary.json")
     p.add_argument("--trace", default="data/fss_trace.nc")
     a = p.parse_args()
-    if a.x_max is None:
+    if a.t_min is not None or a.t_max is not None:
         d = load(a.csv, a.sizes, a.t_min, a.t_max)
         window = f"T in [{a.t_min}, {a.t_max}]"
     else:
