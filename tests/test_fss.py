@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.fss import _binder, _jackknife, measure
-from src.fss_fit import binder_crossings, log_post, sample
+from src.fss_fit import binder_crossings, log_post, preliminary, sample, scaling_window
 
 
 def test_binder_limits():
@@ -60,3 +60,18 @@ def test_binder_crossing_of_synthetic_curves():
     cr = binder_crossings(d, [16, 32, 64], n_boot=50)
     for row in cr:
         assert abs(row["T_cross"] - 2.27) < 0.002
+
+
+def test_preliminary_estimates_from_synthetic_curves():
+    t_star, nu0 = preliminary(_synthetic(nu=0.9, noise=1e-6), [16, 32, 64])
+    assert abs(t_star - 2.27) < 0.002
+    assert abs(nu0 - 0.9) < 0.05
+
+
+def test_scaling_window_keeps_the_same_x_range_for_every_size():
+    d = scaling_window(_synthetic(), 1.0, 2.27, 1.0)
+    x = (d["T"] - 2.27) * d["L"]
+    assert np.all(np.abs(x) <= 1.0 + 1e-9)
+    assert {int(L): int((d["L"] == L).sum()) for L in (16, 32, 64)} == {16: 9, 32: 7, 64: 3}
+    for row in binder_crossings(d, [16, 32, 64], n_boot=20):     # on the shared temperatures
+        assert abs(row["T_cross"] - 2.27) < 0.005

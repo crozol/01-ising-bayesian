@@ -28,12 +28,19 @@ with zero (the quadratic scaling functions describe the data within their
 errors); neither criterion looks at the exact values. scripts/fss_systematics.py
 refits with other size sets and windows to show how much the estimates move.
 
+A window of fixed width in T reaches |x| ∝ L^(1/ν) on the largest lattices,
+where the quadratic scaling functions no longer hold. --x-max instead keeps
+the points with |T − T*| L^(1/ν₀) ≤ x_max, the same part of the scaling
+functions for every size. T* and ν₀ are model-free: T* is the U crossing of
+the two largest sizes, and ν₀ follows from dU/dT|T* ∝ L^(1/ν).
+
 As a model-free cross-check, the crossing temperature of U(T) for each pair
 of consecutive sizes is located by linear interpolation, with a bootstrap
 error from the jackknife errors of U.
 
 Usage:
     python -m src.fss_fit --csv data/fss.csv
+    python -m src.fss_fit --csv data/fss_wolff.csv --sizes 16 32 64 128 --x-max 2
 """
 
 from __future__ import annotations
@@ -59,6 +66,30 @@ def load(csv: str, sizes=None, t_min=None, t_max=None):
     if t_max is not None:
         d = d[d["T"] <= t_max + 1e-9]
     return {k: np.asarray(d[k], dtype=float) for k in d.dtype.names}
+
+
+def preliminary(d, sizes):
+    """Model-free T* and ν₀ that place the scaling window: T* is the U crossing
+    of the two largest sizes; each slope dU/dT at T* is a weighted straight line
+    through the three grid temperatures nearest T*, and ν₀ comes from a
+    weighted log-log fit of the slopes against L."""
+    t_star = binder_crossings(d, sizes[-2:], n_boot=2)[0]["T_cross"]
+    slopes, errs = [], []
+    for L in sizes:
+        T, U, e = (d[k][d["L"] == L] for k in ("T", "U", "U_err"))
+        k = np.argsort(np.abs(T - t_star))[:3]
+        c, cov = np.polyfit(T[k] - t_star, U[k], 1, w=1 / e[k], cov="unscaled")
+        slopes.append(-c[0])
+        errs.append(np.sqrt(cov[0, 0]))
+    slopes, errs = np.array(slopes), np.array(errs)
+    inv_nu = np.polyfit(np.log(sizes), np.log(slopes), 1, w=slopes / errs)[0]
+    return float(t_star), float(1.0 / inv_nu)
+
+
+def scaling_window(d, x_max, t_star, nu0):
+    """Keep the points with |T − T*| L^(1/ν₀) ≤ x_max."""
+    keep = np.abs((d["T"] - t_star) * d["L"] ** (1.0 / nu0)) <= x_max + 1e-9
+    return {k: v[keep] for k, v in d.items()}
 
 
 def _design(th, d):
@@ -132,6 +163,8 @@ def binder_crossings(d, sizes, n_boot=2000, seed=0):
     res = []
     for L1, L2 in zip(sizes[:-1], sizes[1:]):
         a, b = d["L"] == L1, d["L"] == L2
+        shared = np.isin(d["T"].round(9), np.intersect1d(d["T"][a].round(9), d["T"][b].round(9)))
+        a, b = a & shared, b & shared                  # a scaling window keeps fewer T at large L
         T = d["T"][a]
         assert np.allclose(T, d["T"][b]), "sizes must share the temperature grid"
 
@@ -167,7 +200,7 @@ def summarize(samples, coefs, d, sizes, out_json, trace_out=None):
         Path(trace_out).parent.mkdir(parents=True, exist_ok=True)
         az.to_netcdf(idata, trace_out)
     s = az.summary(idata, var_names=["Tc", "nu", "b", "beta", "U0", "sigma_U", "sigma_M"],
-                   hdi_prob=0.95)
+                   hdi_prob=0.95, round_to=6)
     print(s.to_string(), flush=True)
     result = {"sizes": [int(L) for L in sizes], "n_points": int(len(d["L"])),
               "exact": {"Tc": TC_EXACT, "nu": 1.0, "b": 0.125, "beta": 0.125, "U0": 0.6107},
@@ -192,6 +225,8 @@ if __name__ == "__main__":
     p.add_argument("--sizes", nargs="+", type=int, default=[16, 32, 64])
     p.add_argument("--t-min", type=float, default=2.23)
     p.add_argument("--t-max", type=float, default=2.31)
+    p.add_argument("--x-max", type=float, default=None,
+                   help="window |T - T*| L^(1/nu0) <= x_max in place of --t-min/--t-max")
     p.add_argument("--draws", type=int, default=10_000)
     p.add_argument("--tune", type=int, default=10_000)
     p.add_argument("--chains", type=int, default=4)
@@ -199,9 +234,15 @@ if __name__ == "__main__":
     p.add_argument("--out", default="data/fss_summary.json")
     p.add_argument("--trace", default="data/fss_trace.nc")
     a = p.parse_args()
-    d = load(a.csv, a.sizes, a.t_min, a.t_max)
+    if a.x_max is None:
+        d = load(a.csv, a.sizes, a.t_min, a.t_max)
+        window = f"T in [{a.t_min}, {a.t_max}]"
+    else:
+        d = load(a.csv, a.sizes)
+        t_star, nu0 = preliminary(d, sorted(a.sizes))
+        d = scaling_window(d, a.x_max, t_star, nu0)
+        window = f"|T - {t_star:.4f}| L^(1/{nu0:.3f}) <= {a.x_max}"
     sizes = sorted(set(int(L) for L in d["L"]))
-    print(f"[fss_fit] {len(d['L'])} points, sizes {sizes}, "
-          f"T in [{a.t_min}, {a.t_max}]", flush=True)
+    print(f"[fss_fit] {len(d['L'])} points, sizes {sizes}, {window}", flush=True)
     smp, cf = sample(d, draws=a.draws, tune=a.tune, chains=a.chains, seed=a.seed)
     summarize(smp, cf, d, sizes, a.out, a.trace)
