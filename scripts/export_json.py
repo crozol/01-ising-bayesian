@@ -74,26 +74,24 @@ def _load_csv(path: str) -> dict:
     return {"T": T, "M_mean": M, "M_std": S}
 
 
-def _thin(array_2d: np.ndarray, max_draws: int = 1500) -> np.ndarray:
-    """Subsample draws dimension to cap file size."""
-    n_chains, n_draws = array_2d.shape
-    if n_draws <= max_draws:
-        return array_2d
-    step = max(1, n_draws // max_draws)
-    return array_2d[:, ::step]
+def _thin_step(n_draws: int, max_draws: int = 1500) -> int:
+    """Stride that subsamples the draws dimension to cap file size."""
+    return 1 if n_draws <= max_draws else max(1, n_draws // max_draws)
 
 
 def _posterior_to_dict(trace) -> dict:
     post = trace.posterior
-    Tc = _thin(post["Tc"].values)
-    beta = _thin(post["beta"].values)
-    sigma = _thin(post["sigma"].values)
+    step = _thin_step(post.sizes["draw"])
+    Tc = post["Tc"].values[:, ::step]
+    beta = post["beta"].values[:, ::step]
+    sigma = post["sigma"].values[:, ::step]
     return {
         "Tc": Tc.tolist(),
         "beta": beta.tolist(),
         "sigma": sigma.tolist(),
         "n_chains": int(Tc.shape[0]),
         "n_draws": int(Tc.shape[1]),
+        "draw_step": int(step),
     }
 
 
@@ -150,8 +148,8 @@ def main(
             "n_thermalization": 2000,
             "n_measure": 3000,
             "sampler": "random-walk Metropolis-Hastings (NumPy)",
-            "mcmc_chains": 4,
-            "mcmc_draws_post_burn": 5000,
+            "mcmc_chains": int(trace.posterior.sizes["chain"]),
+            "mcmc_draws_post_burn": int(trace.posterior.sizes["draw"]),
             "mcmc_tune": 1000,
         },
     }

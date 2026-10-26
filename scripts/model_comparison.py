@@ -265,7 +265,7 @@ if __name__ == "__main__":
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--csv", default="data/magnetization.csv")
     p.add_argument("--out", default="results/model_comparison.json")
-    p.add_argument("--draws", type=int, default=5000)
+    p.add_argument("--draws", type=int, default=50_000)
     p.add_argument("--tune", type=int, default=1000)
     p.add_argument("--chains", type=int, default=4)
     p.add_argument("--seed", type=int, default=0)

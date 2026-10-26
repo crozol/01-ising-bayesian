@@ -361,7 +361,7 @@ downstream figures are backend-agnostic:
 
 - **`numpy` (default)** — a random-walk Metropolis-Hastings sampler
   implemented directly on the log-posterior. No C compiler required; runs in
-  a few seconds. 4 chains × (1000 tune + 5000 draws).
+  about 15 seconds. 4 chains × (1000 tune + 50 000 draws).
 - **`pymc`** — reference implementation with PyMC + NUTS (gradient-based).
   More efficient but relies on PyTensor's C backend.
 
@@ -372,8 +372,8 @@ Select with `--backend numpy|pymc`.
 ![Posteriors](figures/posteriors.png)
 
 **Left panel · posterior of `Tc`.** Most of the probability mass lies between
-`2.33` and `2.44`, with a sharp peak near `2.34` and a long tail to higher
-temperatures. The pink vertical line is the posterior mean (`2.367`); the
+`2.33` and `2.43`, with a sharp peak near `2.34` and a long tail to higher
+temperatures. The pink vertical line is the posterior mean (`2.368`); the
 orange dashed line is Onsager's exact value `Tc = 2.2692`; the bar is the 95%
 highest-density interval (HDI). The exact value falls **outside** the HDI, by
 about `0.1`.
@@ -384,12 +384,12 @@ number of points in the power-law arm changes by one, producing kinks in the
 log-posterior.
 
 **Right panel · posterior of `β`.** The posterior is wide — the 95% HDI
-`[0.048, 0.152]` spans a factor of three — and the exact `1/8` sits inside it,
+`[0.049, 0.151]` spans a factor of three — and the exact `1/8` sits inside it,
 toward the upper end. A credible interval this wide is not much of a
 measurement, and Section 11 shows that its location depends on modelling
 choices more than on the data.
 
-The posterior of the discrepancy term, `σ = 0.115 [0.082, 0.151]`, is the
+The posterior of the discrepancy term, `σ = 0.115 [0.083, 0.151]`, is the
 first warning: it is about a hundred times larger than the Monte Carlo
 errors `e_k` (`10⁻⁴` to `4 × 10⁻²`). The power law misses the data by far more
 than the data's own uncertainty.
@@ -403,18 +403,18 @@ but are not. These three checks are non-negotiable:
 
 - **`R̂` (Gelman-Rubin).** Compares variance between chains to variance within
   chains. `R̂ ≤ 1.01` is the gold standard, `≤ 1.05` is tolerable. Here
-  `R̂ = 1.01` for `Tc` and `σ` and `1.02` for `β`.
+  `R̂ = 1.00` for all three parameters.
 - **`ESS_bulk` (effective sample size).** Accounts for autocorrelation —
   one independent sample is worth many correlated ones. `≥ 200` is a
-  working threshold. `Tc` (332) and `σ` (562) clear it; `β` (187) falls just
-  short. The hard threshold at `T = Tc` makes `β` the slowest-mixing
-  parameter of this random-walk sampler; more draws or the NUTS backend
-  would lift it.
+  working threshold. All three clear it: `Tc` 3 983, `σ` 5 628 and `β` 2 074.
+  The hard threshold at `T = Tc` makes `β` the slowest-mixing parameter of
+  this random-walk sampler, which is why the chains are 50 000 draws long:
+  with 5 000, the ESS of `β` was 187.
 - **Visual inspection.** Healthy chains overlap, do not drift with
   iteration, do not stick in any one region. Each subplot above shows all
   four chains on top of each other.
 
-The acceptance rate is 26–31% per chain. The sampler explores this posterior
+The acceptance rate is 29–31% per chain. The sampler explores this posterior
 adequately, with `β` the parameter to watch. Convergence, though, only says
 the posterior was sampled correctly — not that the model behind it is right.
 
@@ -430,14 +430,14 @@ prior on `β`:
 
 | Fit window | Likelihood | `β` prior | `Tc` | `β` (95% HDI) | `σ` |
 |---|---|---|---|---|---|
-| all `T` | homoscedastic | normal | 2.370 ± 0.036 | 0.101 [0.052, 0.147] | 0.119 |
-| all `T` | homoscedastic | flat | 2.368 ± 0.039 | 0.099 [0.051, 0.150] | 0.118 |
-| all `T` | heteroscedastic | normal | 2.367 ± 0.035 | 0.098 [0.056, 0.141] | 0.114 |
-| all `T` | heteroscedastic | flat (**used**) | 2.367 ± 0.038 | 0.094 [0.048, 0.152] | 0.115 |
-| `T < 2.25` | homoscedastic | normal | 2.30 ± 0.18 | 0.046 [0.026, 0.077] | 0.034 |
-| `T < 2.25` | homoscedastic | flat | 2.26 ± 0.15 | 0.041 [0.025, 0.070] | 0.032 |
-| `T < 2.25` | heteroscedastic | normal | 2.29 ± 0.16 | 0.044 [0.026, 0.076] | 0.033 |
-| `T < 2.25` | heteroscedastic | flat | 2.27 ± 0.16 | 0.042 [0.025, 0.071] | 0.032 |
+| all `T` | homoscedastic | normal | 2.370 ± 0.036 | 0.102 [0.057, 0.150] | 0.119 |
+| all `T` | homoscedastic | flat | 2.368 ± 0.037 | 0.099 [0.052, 0.154] | 0.119 |
+| all `T` | heteroscedastic | normal | 2.369 ± 0.035 | 0.098 [0.056, 0.145] | 0.115 |
+| all `T` | heteroscedastic | flat (**used**) | 2.368 ± 0.036 | 0.095 [0.049, 0.151] | 0.115 |
+| `T < 2.25` | homoscedastic | normal | 2.31 ± 0.19 | 0.046 [0.025, 0.080] | 0.035 |
+| `T < 2.25` | homoscedastic | flat | 2.26 ± 0.14 | 0.041 [0.024, 0.067] | 0.032 |
+| `T < 2.25` | heteroscedastic | normal | 2.31 ± 0.18 | 0.046 [0.025, 0.079] | 0.034 |
+| `T < 2.25` | heteroscedastic | flat | 2.25 ± 0.13 | 0.040 [0.024, 0.065] | 0.031 |
 
 Three things follow.
 
@@ -446,7 +446,7 @@ Three things follow.
    moves `β` by less than its own uncertainty.
 2. **The fit window matters a great deal.** On the ordered side alone, `β`
    drops to `0.04` and its HDI excludes `1/8`, while `Tc` is barely
-   constrained (`± 0.16`).
+   constrained (`± 0.13` to `± 0.19`).
 3. **The simulation is not the problem.** For `T < 2.25` the measured
    `⟨|M|⟩` agrees with Onsager's exact infinite-lattice magnetisation
    `M(T) = (1 − sinh(2/T)⁻⁴)^(1/8)` (Yang 1952) to within `0.012`, or 1.8
@@ -455,8 +455,8 @@ Three things follow.
    `T → Tc`, with an amplitude of about `1.22` rather than `1`.
 
 Freeing the amplitude, `M = B (1 − T/Tc)^β`, does not rescue the fit: on the
-ordered side `Tc` and `β` become degenerate (`Tc` HDI `[2.18, 2.62]`, `R̂ = 1.10`),
-and over the full range the fit moves to `β = 0.38`, far from `1/8`.
+ordered side it gives `β = 0.074 [0.055, 0.103]`, which excludes `1/8`, and over
+the full range `β = 0.38`, far from it.
 
 Fixing the amplitude at its exact value does not rescue it either, and the
 way it fails shows what is missing. To leading order in `t = 1 − T/Tc`,
@@ -475,7 +475,7 @@ the `O(t²)` remainder is at most `0.97` Monte Carlo standard errors at any data
 point. The model `M = A t^β (1 + b t)` therefore needs no discrepancy term `σ`:
 the likelihood uses the Monte Carlo errors alone, with flat priors on `Tc`,
 `β` and `b`. On the same nine points as above it gives `β = 0.124 [0.122, 0.127]`,
-`Tc = 2.262 [2.244, 2.282]` and `b = −0.227 [−0.233, −0.221]`, with
+`Tc = 2.262 [2.244, 2.281]` and `b = −0.227 [−0.233, −0.221]`, with
 `χ² = 8.1` for 6 degrees of freedom: all three compatible with the exact
 `1/8`, `2.269` and `−0.225`. On `T < 2.1` (eight points) the result is the
 same (`β = 0.124`, `Tc = 2.260`).
@@ -593,7 +593,7 @@ Tc   =   2 / ln(1 + √2)   ≈   2.2692
 
 | Method | `Tc` (95% HDI) | `β` (95% HDI) | Exact in HDI? |
 |---|---|---|---|
-| Single lattice, `L = 32`, power law (Sections 8–11) | 2.367 [2.333, 2.439] | 0.094 [0.048, 0.152] | `Tc` no · `β` yes, but not robust |
+| Single lattice, `L = 32`, power law (Sections 8–11) | 2.368 [2.333, 2.434] | 0.095 [0.049, 0.151] | `Tc` no · `β` yes, but not robust |
 | Finite-size scaling, `L = 16–64` (Section 12) | 2.268 [2.265, 2.271] | 0.113 [0.101, 0.126] | both yes |
 
 The single-size fit is not a usable estimator of either quantity: its `Tc` is
@@ -633,7 +633,7 @@ Typical runtimes on a laptop CPU:
 | Stage | Time |
 |---|---|
 | Single-size simulation (32×32, 25 temperatures) | ~10 s |
-| Single-size MCMC (4 chains × 5000 draws) | a few seconds |
+| Single-size MCMC (4 chains × 50 000 draws) | about 15 s |
 | Finite-size-scaling simulation (L = 8–64, 15 temperatures) | ~10 min |
 | Finite-size-scaling fit | ~15 s |
 | Figures | < 5 s |
