@@ -29,7 +29,7 @@ crossing of the two largest sizes, and ν₀ follows from dU/dT|T* ∝ L^(1/ν).
 
 Default fit: Wolff data, L = 32, 64, 128 and |x| ≤ 1, the widest range that
 passes the classical goodness-of-fit test (chi2_fit: weighted least squares
-on the Monte Carlo errors alone, Q = 0.22); wider windows and L = 16 are
+on the Monte Carlo errors alone, Q = 0.22 > 0.05); wider windows and L = 16 are
 rejected. Neither choice looks at the exact values. scripts/fss_systematics.py
 tabulates the test for other size sets, windows and orders of f and g.
 --t-min/--t-max select a window in T instead.

@@ -568,8 +568,8 @@ of the fit (`x_max` and the smallest lattice `L_min`) is chosen by the classical
 goodness-of-fit test: the same model fitted by weighted least squares on the
 Monte Carlo errors alone, without discrepancy terms, gives `χ²_min` with
 `2N − 9` degrees of freedom for quadratic `f` and `g`, and the probability `Q`
-of a larger `χ²`; the errors in the table come from the curvature of `χ²` at
-its minimum (`Δχ² = 1`):
+of a larger `χ²`; a fit passes when `Q > 0.05`. The errors in the table come
+from the curvature of `χ²` at its minimum (`Δχ² = 1`):
 
 | Sizes | `\|x\| ≤` | Order of `f`, `g` | Points | `χ²/dof` | `Q` | `Tc` | `ν` | `β` |
 |---|---|---|---|---|---|---|---|---|
