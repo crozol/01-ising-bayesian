@@ -40,7 +40,7 @@ error from the jackknife errors of U.
 
 Usage:
     python -m src.fss_fit                                     # data/fss_wolff.csv, L = 32-128, |x| <= 1
-    python -m src.fss_fit --csv data/fss.csv --sizes 16 32 64 --t-min 2.23 --t-max 2.31
+    python -m src.fss_fit --csv data/fss_metropolis_tau.csv --sizes 16 32 64 --t-min 2.23 --t-max 2.31
 """
 
 from __future__ import annotations
