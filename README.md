@@ -618,10 +618,29 @@ As a model-free check, the Binder curves of consecutive sizes cross at
 `2.2666(7)`, `2.2699(5)` and `2.2684(3)`; these straight-line interpolations
 between grid temperatures `0.01` apart scatter by more than their errors.
 
+**Corrections to scaling.** One explicit correction term does not account for
+the rejected fits (`scripts/scaling_corrections.py`). Adding `c · L^(−ω)` to both
+forms, each with its own amplitude, with `ω = 1` (the order of the corrections
+from the nonlinear dependence of the thermal scaling field on `T`, `L^(−1/ν)`;
+Aharony & Fisher 1983) or `ω = 2` (the leading corrections from irrelevant
+operators in the two-dimensional Ising model; Caselle et al. 2002), raises `Q`
+for `L = 16–128` with `|x| ≤ 1` from `8 × 10⁻⁴` to `0.017` and `0.015`, still
+below `0.05`, and leaves every window wider than `|x| ≤ 1` at `Q < 10⁻¹⁷`. On
+the accepted window the term moves `β` from `0.1217(10)` to `0.1245(37)`
+(`ω = 1`) and `0.1230(23)` (`ω = 2`), towards `1/8`, and `ν` from `0.980(7)` to
+`0.975(12)` and `0.977(10)`, not towards `1`; `Tc` moves by less than `0.0001`.
+The shifts of `β` are of the size of its systematic error already quoted
+(`0.0024`); those of `ν` are well within its own (`0.020`). Using `K = 1/T`
+instead of `T` in the scaling variable, which changes it at second order in
+`T − Tc`, moves `ν` by `−0.004` and `β` by `−0.0005` (`Q = 0.24`). A correction with a constant amplitude is
+therefore not enough; one whose amplitude varies with `x` would need more
+temperatures per size than the 2 to 7 inside the window.
+
 **Limitation.** With a grid of `0.01` in `T`, only 4 temperatures of `L = 64`
 and 2 of `L = 128` fall inside `|x| ≤ 1`. A finer grid near `Tc` for the
-largest lattices would tighten `ν` and `β` and allow corrections to scaling to
-be fitted explicitly instead of being excluded through `L_min`.
+largest lattices would tighten `ν` and `β` and allow corrections to scaling
+with an `x`-dependent amplitude to be fitted, instead of being excluded through
+`L_min`.
 
 ## 13 · Comparison with Onsager's exact solution
 
@@ -666,6 +685,7 @@ python -m src.plots      --csv data/magnetization.csv --trace data/trace.nc \
 # Section 11 and Section 12 tables
 python -m scripts.model_comparison --csv data/magnetization.csv
 python -m scripts.fss_systematics   # chi2 test and systematics, a few seconds
+python -m scripts.scaling_corrections   # Section 12: L^-omega terms and K = 1/T, a few seconds
 
 # Section 12 autocorrelation times with Metropolis
 python -m src.fss --algorithm metropolis --sizes 8 16 32 64 --out data/fss_metropolis_tau.csv
@@ -719,6 +739,7 @@ which the χ² test of Section 12 now rejects.
 ├── scripts/
 │   ├── model_comparison.py      # Section 11: table, Onsager check, free/fixed amplitude, correction to scaling
 │   ├── fss_systematics.py       # Section 12 goodness-of-fit and systematics table
+│   ├── scaling_corrections.py   # Section 12 corrections to scaling: L^-ω terms and K = 1/T
 │   ├── summarize.py             # posterior summary → JSON
 │   └── export_json.py           # arrays → JSON for the portfolio page
 ├── notebooks/
@@ -779,3 +800,9 @@ which the χ² test of Section 12 now rejects.
   for `τ_int`)
 - Haario, H., Saksman, E. & Tamminen, J. (2001). *An adaptive Metropolis
   algorithm.* Bernoulli **7**, 223.
+- Aharony, A. & Fisher, M. E. (1983). *Nonlinear scaling fields and
+  corrections to scaling near criticality.* Physical Review B **27**, 4394.
+  (corrections of order `L^(−1/ν)`)
+- Caselle, M., Hasenbusch, M., Pelissetto, A. & Vicari, E. (2002).
+  *Irrelevant operators in the two-dimensional Ising model.* Journal of
+  Physics A **35**, 4861.  (corrections of order `L^(−2)`)
