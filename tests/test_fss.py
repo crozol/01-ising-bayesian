@@ -85,6 +85,39 @@ def test_chi2_fit_of_synthetic_data_is_acceptable_and_recovers_parameters():
     assert r["Q"] > 1e-3
 
 
+def _synthetic_with_correction(amp=2.0, omega=2.0, noise=1e-4, seed=3, Tc=2.27, nu=1.0, b=0.125):
+    """As _synthetic, plus a correction to scaling amp · L^(-omega) in both forms."""
+    rng = np.random.default_rng(seed)
+    L = np.repeat([16.0, 32.0, 64.0], 9)
+    T = np.tile(np.linspace(2.25, 2.29, 9), 3)
+    x = (T - Tc) * L ** (1 / nu)
+    corr = amp * L ** -omega
+    U = 0.61 - 0.05 * x - 0.005 * x ** 2 + corr
+    M = L ** -b * (1.0 - 0.1 * x - 0.01 * x ** 2 + corr)
+    e = np.full_like(T, noise)
+    return {"L": L, "T": T, "U": U + rng.normal(0, noise, T.shape), "U_err": e,
+            "M_abs": M + rng.normal(0, noise, T.shape), "M_abs_err": e}
+
+
+def test_a_correction_to_scaling_term_absorbs_a_resolved_correction():
+    d = _synthetic_with_correction()
+    plain, corrected = chi2_fit(d), chi2_fit(d, omega=2.0)
+    assert plain["Q"] < 1e-6                                   # the leading order is rejected
+    assert corrected["Q"] > 0.01 and corrected["dof"] == plain["dof"] - 2
+    assert abs(corrected["Tc"] - 2.27) < 3 * corrected["Tc_err"] + 1e-4
+    assert abs(corrected["beta"] - 0.125) < abs(plain["beta"] - 0.125)
+
+
+def test_fit_in_K_maps_the_critical_temperature_back():
+    from scripts.scaling_corrections import fit_in_K
+
+    d = _synthetic(seed=2)
+    r, rk = chi2_fit(d), fit_in_K(d)
+    assert rk["variable"] == "K = 1/T" and rk["dof"] == r["dof"]
+    assert abs(rk["Tc"] - 2.27) < 0.005 and abs(rk["Tc"] - r["Tc"]) < 0.002
+    assert abs(rk["nu"] - r["nu"]) < 0.05
+
+
 def test_chi2_fit_errors_and_higher_order_scaling_functions():
     d = _synthetic(seed=2)
     r2, r3 = chi2_fit(d), chi2_fit(d, order=3)

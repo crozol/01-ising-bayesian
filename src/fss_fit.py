@@ -92,11 +92,16 @@ def scaling_window(d, x_max, t_star, nu0):
     return {k: v[keep] for k, v in d.items()}
 
 
-def _design(th, d, order=2):
+def _design(th, d, order=2, omega=None):
+    """Columns of the scaling functions f and g (powers of x up to ``order``) and,
+    if ``omega`` is given, a leading correction to scaling L^(-omega) with a
+    constant amplitude, the same for both observables."""
     Tc, nu, b = th[:3]
     x = (d["T"] - Tc) * d["L"] ** (1.0 / nu)
-    A = np.stack([x ** k for k in range(order + 1)], 1)
-    return A, d["L"] ** (-b)
+    cols = [x ** k for k in range(order + 1)]
+    if omega is not None:
+        cols.append(d["L"] ** (-float(omega)))
+    return np.stack(cols, 1), d["L"] ** (-b)
 
 
 def _gaussian_block(A, y, v):
@@ -111,8 +116,8 @@ def _gaussian_block(A, y, v):
     return ll, c, F
 
 
-def _chi2(th, d, order=2, return_U0=False):
-    A, scale = _design(th, d, order)
+def _chi2(th, d, order=2, return_U0=False, omega=None):
+    A, scale = _design(th, d, order, omega)
     cU = _gaussian_block(A, d["U"], d["U_err"] ** 2)[1]
     cM = _gaussian_block(A * scale[:, None], d["M_abs"], d["M_abs_err"] ** 2)[1]
     chi2 = (np.sum((d["U"] - A @ cU) ** 2 / d["U_err"] ** 2)
@@ -131,26 +136,28 @@ def _hessian(f, x, h):
     return H
 
 
-def chi2_fit(d, start=(2.27, 1.0, 0.12), order=2):
+def chi2_fit(d, start=(2.27, 1.0, 0.12), order=2, omega=None):
     """Classical goodness of fit: weighted least squares of both scaling forms on
     the Monte Carlo errors alone (σ_U = σ_M = 0), with f and g of the given
     order, minimised over (Tc, ν, β/ν) with the linear coefficients solved
-    exactly. Returns the minimum with errors from the curvature of χ² there
-    (Δχ² = 1), χ²_min, the degrees of freedom 2N − 3 − 2(order + 1) and
-    Q = P(χ²_dof ≥ χ²_min)."""
+    exactly. With ``omega``, each form gets a correction to scaling
+    c · L^(-omega) with its own amplitude c (one more linear coefficient per
+    observable). Returns the minimum with errors from the curvature of χ² there
+    (Δχ² = 1), χ²_min, the degrees of freedom 2N − 3 − 2 × (number of linear
+    coefficients per observable) and Q = P(χ²_dof ≥ χ²_min)."""
     from scipy import optimize, stats
 
-    f = lambda th: _chi2(th, d, order)  # noqa: E731
+    f = lambda th: _chi2(th, d, order, omega=omega)  # noqa: E731
     r = optimize.minimize(f, start, method="Nelder-Mead",
                           options={"xatol": 1e-8, "fatol": 1e-9, "maxiter": 40_000})
     Tc, nu, b = r.x
     cov = 2 * np.linalg.inv(_hessian(f, r.x, np.array([2e-5, 2e-3, 2e-4])))
     grad_beta = np.array([0.0, b, nu])                     # β = ν · (β/ν)
-    dof = 2 * len(d["L"]) - 3 - 2 * (order + 1)
-    return {"order": order, "Tc": float(Tc), "Tc_err": float(np.sqrt(cov[0, 0])),
+    dof = 2 * len(d["L"]) - 3 - 2 * (order + 1 + (omega is not None))
+    return {"order": order, "omega": omega, "Tc": float(Tc), "Tc_err": float(np.sqrt(cov[0, 0])),
             "nu": float(nu), "nu_err": float(np.sqrt(cov[1, 1])),
             "beta": float(nu * b), "beta_err": float(np.sqrt(grad_beta @ cov @ grad_beta)),
-            "U0": float(_chi2(r.x, d, order, return_U0=True)[1]),
+            "U0": float(_chi2(r.x, d, order, return_U0=True, omega=omega)[1]),
             "chi2": float(r.fun), "dof": int(dof), "Q": float(stats.chi2.sf(r.fun, dof))}
 
 
