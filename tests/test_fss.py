@@ -124,3 +124,18 @@ def test_chi2_fit_errors_and_higher_order_scaling_functions():
     assert 0 < r2["Tc_err"] < 0.005 and 0 < r2["nu_err"] < 0.1 and 0 < r2["beta_err"] < 0.02
     assert r3["dof"] == r2["dof"] - 2
     assert r3["chi2"] <= r2["chi2"] + 1e-6                      # nested model fits at least as well
+
+
+def test_saved_series_are_the_integer_moments_of_the_chain(tmp_path):
+    """The series saved for histogram reweighting are exact integers that give
+    back the observables of the point."""
+    out = tmp_path / "L8.npz"
+    r = measure(8, 2.3, n_therm=200, n_measure=2_000, seed=7, n_blocks=10,
+                algorithm="wolff", series_out=str(out))
+    z = np.load(out)
+    assert z["M"].dtype == np.int32 and z["E"].dtype == np.int32
+    assert np.all(z["E"] % 2 == 0)                     # 2 bonds per site, each +-1: E = -2N + 4k
+    m = z["M"] / 64.0
+    assert np.abs(m).mean() == r["M_abs"]
+    assert float(_binder(m)) == r["U"]
+    assert float(z["T"]) == 2.3 and int(z["L"]) == 8

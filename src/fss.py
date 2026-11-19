@@ -80,10 +80,15 @@ def _binder(m):
 
 
 def measure(L: int, T: float, *, n_therm: int, n_measure: int, seed: int,
-            n_blocks: int | None = None, algorithm: str = "metropolis") -> dict:
+            n_blocks: int | None = None, algorithm: str = "metropolis",
+            series_out: str | None = None) -> dict:
     """One (L, T) point. With n_blocks=None the number of jackknife blocks is
     chosen so that each block spans at least 20 τ_int (the larger of the
-    τ_int of |m| and of m², which enter <|m|> and U)."""
+    τ_int of |m| and of m², which enter <|m|> and U). With ``series_out`` the
+    measured series are also saved there (.npz) as the integer total
+    magnetisation M and energy E of every measurement, with T, the seed, τ_int
+    and the number of blocks: the input of histogram reweighting
+    (src/reweight.py)."""
     _seed(seed)
     lattice = np.ones((L, L), dtype=np.int8)       # cold start, as in the M(T) sweep
     if algorithm == "metropolis":
@@ -99,6 +104,12 @@ def measure(L: int, T: float, *, n_therm: int, n_measure: int, seed: int,
         n_blocks = n_blocks_for(n_measure, tau)
     M_abs, M_abs_err = _jackknife(m, n_blocks, _abs_m)
     U, U_err = _jackknife(m, n_blocks, _binder)
+    if series_out is not None:
+        n2 = L * L
+        Path(series_out).parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(series_out, M=np.rint(m * n2).astype(np.int32),
+                            E=np.rint(e * n2).astype(np.int32), L=L, T=float(T), seed=seed,
+                            tau=float(tau), n_blocks=n_blocks, sweeps_per_measurement=sweeps)
     return {"L": L, "T": float(T), "M_abs": M_abs, "M_abs_err": M_abs_err,
             "U": U, "U_err": U_err, "n_measure": n_measure,
             "tau_m": t_m["tau"] * sweeps, "tau_m_err": t_m["err"] * sweeps,
@@ -108,7 +119,7 @@ def measure(L: int, T: float, *, n_therm: int, n_measure: int, seed: int,
 
 
 def run(sizes, temps, *, n_therm: int, n_measure: int, seed: int, out: str,
-        algorithm: str = "metropolis") -> None:
+        algorithm: str = "metropolis", series_dir: str | None = None) -> None:
     rows = []
     fields = ["L", "T", "M_abs", "M_abs_err", "U", "U_err", "n_measure",
               "tau_m", "tau_m_err", "tau_e", "tau_e_err", "sweeps_per_measurement",
@@ -118,7 +129,8 @@ def run(sizes, temps, *, n_therm: int, n_measure: int, seed: int, out: str,
         t0 = time.time()
         for i, T in enumerate(temps):
             r = measure(L, T, n_therm=n_therm, n_measure=n_measure, seed=seed + 1000 * L + i,
-                        algorithm=algorithm)
+                        algorithm=algorithm,
+                        series_out=None if series_dir is None else f"{series_dir}/L{L}_T{T:.4f}.npz")
             rows.append(r)
             print(f"  L={L:4d} T={T:.4f}  <|m|>={r['M_abs']:.4f}±{r['M_abs_err']:.4f}  "
                   f"U={r['U']:.4f}±{r['U_err']:.4f}  tau_|m|={r['tau_m']:.1f}  "
@@ -143,7 +155,9 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="data/fss_wolff.csv")
     p.add_argument("--algorithm", choices=["metropolis", "wolff"], default="wolff")
+    p.add_argument("--series-dir", default=None,
+                   help="also save the M and E series of every point there (for src/reweight.py)")
     a = p.parse_args()
     run(a.sizes, np.linspace(a.t_min, a.t_max, a.n_temps),
         n_therm=a.n_therm, n_measure=a.n_measure, seed=a.seed, out=a.out,
-        algorithm=a.algorithm)
+        algorithm=a.algorithm, series_dir=a.series_dir)
