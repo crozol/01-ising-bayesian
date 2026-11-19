@@ -636,11 +636,42 @@ instead of `T` in the scaling variable, which changes it at second order in
 therefore not enough; one whose amplitude varies with `x` would need more
 temperatures per size than the 2 to 7 inside the window.
 
-**Limitation.** With a grid of `0.01` in `T`, only 4 temperatures of `L = 64`
-and 2 of `L = 128` fall inside `|x| ≤ 1`. A finer grid near `Tc` for the
-largest lattices would tighten `ν` and `β` and allow corrections to scaling
-with an `x`-dependent amplitude to be fitted, instead of being excluded through
-`L_min`.
+**Reweighted curves.** With a grid of `0.01` in `T`, only 4 temperatures of
+`L = 64` and 2 of `L = 128` fall inside `|x| ≤ 1`. Multiple-histogram
+reweighting (Ferrenberg & Swendsen 1989; `src/reweight.py`) of the 15 runs of
+each size gives `<|m|>` and `U` at any temperature in the simulated range: the
+published chains, re-run with their seeds, are the same bit for bit and now
+save their energy and magnetisation series, and the reweighted values agree
+with the simulated points (`χ²/n` = 0.8–1.3 over the 15 temperatures of
+`L = 16` and `32`) with errors about four times smaller. Five points per size
+remove the limit of 2 temperatures at `L = 128`, but they also show why a
+goodness-of-fit test cannot choose between corrections on such curves:
+reweighted from the same runs, the points of one size fix its curvature and
+higher derivatives far more precisely than any truncated expansion describes
+them (the eigenvalues of their correlation matrix span 7 orders of magnitude),
+and the `χ²` with their full covariance rejects every polynomial order up to 5
+(`L = 32–128`, `|x| ≤ 1`: 1995 for 15 degrees of freedom at order 5). The fits
+below use the jackknife errors alone, with the errors of `Tc`, `ν` and `β` from
+refitting the whole curve of every jackknife sample (`src/fss_reweighted.py`):
+
+| Sizes | `\|x\| ≤` | Correction | `Tc` | `ν` | `β` |
+|---|---|---|---|---|---|
+| 32, 64, 128 | 1 | none | 2.26902(6) | 0.9876(13) | 0.1217(3) |
+| 32, 64, 128 | 1 | `c L^(−1)` | 2.26925(11) | 0.9805(26) | 0.1228(7) |
+| 32, 64, 128 | 1 | `(c0 + c1 x) L^(−1)` | 2.26927(13) | 0.9948(28) | 0.1258(12) |
+| 32, 64, 128 | 1 | `(c0 + c1 x) L^(−2)` | 2.26920(10) | 0.9933(29) | 0.1241(8) |
+| 16, 32, 64, 128 | 1 | none | 2.26877(5) | 0.9848(8) | 0.1201(2) |
+| 16, 32, 64, 128 | 1 | `(c0 + c1 x) L^(−1)` | 2.26927(9) | 0.9895(17) | 0.1247(5) |
+| 16, 32, 64, 128 | 1 | `(c0 + c1 x) L^(−2)` | 2.26912(7) | 0.9882(14) | 0.1227(4) |
+
+An amplitude that varies with `x` is what the leading-order fit lacked: it
+moves `β` to 0.123–0.126 and `ν` to 0.988–0.995, towards `1/8` and `1`, and with
+`L = 16` it lowers the descriptive `χ²` (jackknife errors alone) from 885 to 206
+for 31 and 27 degrees of freedom, while a constant amplitude leaves `β` at
+0.121–0.123 and `ν` at 0.971–0.982. No correction rescues `|x| ≤ 1.5`
+(descriptive `χ²` above 1450 in every case): there the quadratic scaling
+functions are the limit. The estimates of the table above, from the simulated
+points, are kept.
 
 ## 13 · Comparison with Onsager's exact solution
 
@@ -679,6 +710,8 @@ python -m src.metropolis --out data/magnetization.csv --size 32 --n-temps 25
 python -m src.bayesian   --input data/magnetization.csv --output data/trace.nc
 python -m src.fss        # Wolff, L = 16–128 -> data/fss_wolff.csv
 python -m src.fss_fit    # L = 32–128, |x| <= 1 -> data/fss_summary.json
+python -m src.fss --series-dir data/series_wolff   # the same chains, saving their E and M series
+python -m src.fss_reweighted                        # Section 12, reweighted curves -> results/fss_reweighted.json
 python -m src.plots      --csv data/magnetization.csv --trace data/trace.nc \
                          --out-dir figures --lattice-size 32
 
@@ -711,14 +744,15 @@ pipeline interactively with intermediate prints.
 
 ## 15 · Possible extensions
 
-**A finer grid and larger lattices.** Steps of `0.0025` in `T` around `T*` for
-`L = 64` and `128`, and `L = 256`, which the Wolff algorithm makes affordable,
-would put more points inside the accepted window of Section 12 and tighten
-`ν` and `β`.
+**Larger lattices.** Reweighting (Section 12) already gives every size any
+temperature in the simulated range; `L = 256`, which the Wolff algorithm makes
+affordable, would add a size where the corrections to scaling are smaller.
 
-**Corrections to scaling.** Adding the leading correction term `L^(−ω)` to
-the scaling functions would let the fit use `L = 16` and wider windows,
-which the χ² test of Section 12 now rejects.
+**A test for the corrections to scaling.** Section 12 fits corrections with an
+`x`-dependent amplitude on reweighted curves, but no goodness-of-fit test can
+choose between them there. Cubic scaling functions together with those
+corrections, and independent runs per temperature, enough to estimate the full
+covariance of a reweighted curve, would allow one.
 
 ## 16 · File map
 
@@ -735,6 +769,8 @@ which the χ² test of Section 12 now rejects.
 │   ├── autocorr.py              # integrated autocorrelation time, jackknife block length
 │   ├── fss.py                   # finite-size-scaling data: <|m|>, Binder cumulant, τ_int
 │   ├── fss_fit.py               # Bayesian finite-size-scaling fit and least-squares χ² test
+│   ├── reweight.py              # multiple-histogram reweighting of the Wolff runs, jackknife curves
+│   ├── fss_reweighted.py        # Section 12 fits on reweighted curves, jackknife over the whole curve
 │   └── plots.py                 # static figures
 ├── scripts/
 │   ├── model_comparison.py      # Section 11: table, Onsager check, free/fixed amplitude, correction to scaling
@@ -767,6 +803,11 @@ which the χ² test of Section 12 now rejects.
 - Ferrenberg, A. M. & Landau, D. P. (1991). *Critical behavior of the
   three-dimensional Ising model: A high-resolution Monte Carlo study.*
   Physical Review B **44**, 5081.  (finite-size scaling reference)
+- Ferrenberg, A. M. & Swendsen, R. H. (1988). *New Monte Carlo technique for
+  studying phase transitions.* Physical Review Letters **61**, 2635.
+- Ferrenberg, A. M. & Swendsen, R. H. (1989). *Optimized Monte Carlo data
+  analysis.* Physical Review Letters **63**, 1195.  (multiple-histogram
+  reweighting, Section 12)
 - Hohenberg, P. C. & Halperin, B. I. (1977). *Theory of Dynamic Critical
   Phenomena.* Reviews of Modern Physics **49**, 435.  (dynamic critical
   exponents and critical slowing down)
