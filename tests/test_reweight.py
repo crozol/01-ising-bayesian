@@ -58,3 +58,23 @@ def test_generalised_chi2_with_a_diagonal_covariance_is_the_classical_one():
     d = {k: np.concatenate(v) for k, v in rows.items()}
     th = (2.2695, 1.01, 0.124)
     assert chi2_corr(th, pts) == pytest.approx(_chi2(th, d), rel=1e-10)
+
+
+def test_jackknife_fit_recovers_the_parameters_of_synthetic_curves():
+    from src.fss_reweighted import jackknife_fit
+
+    rng = np.random.default_rng(1)
+    Tc, nu, b = 2.2692, 1.0, 0.125
+    samples = []
+    for L in (32.0, 64.0, 128.0):
+        T = Tc + np.linspace(-1, 1, 5) / L
+        x = (T - Tc) * L ** (1 / nu)
+        U = 0.611 - 0.30 * x + 0.02 * x ** 2
+        M = L ** -b * (1.0 - 0.50 * x + 0.05 * x ** 2)
+        jk = lambda y: y + 1e-6 * rng.normal(size=(10, 5))          # noqa: E731
+        samples.append({"L": L, "T": T, "U": U, "M_abs": M, "U_jk": jk(U), "M_jk": jk(M), "n_blocks": 10})
+    r = jackknife_fit(samples)
+    assert r["Tc"] == pytest.approx(Tc, abs=1e-5)
+    assert r["nu"] == pytest.approx(nu, abs=1e-3)
+    assert r["beta"] == pytest.approx(b, abs=1e-3)
+    assert 0 < r["nu_err"] < 0.01 and r["n_blocks"] == 10
