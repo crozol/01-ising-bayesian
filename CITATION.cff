@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "Bayesian inference on the 2D Ising model"
-abstract: "Numerical experiment combining Markov-Chain Monte Carlo simulation of the 2D Ising model with Bayesian inference of its critical parameters (Tc and beta) using PyMC. Posterior estimates are validated against the exact Onsager (1944) solution as ground truth."
+abstract: "Markov-chain Monte Carlo simulation of the 2D Ising model (Metropolis and Wolff cluster updates) with Bayesian inference of its critical temperature and exponents ν and β. A finite-size-scaling fit of the Binder cumulant and the magnetisation over several lattice sizes, with flat priors, a fit range chosen by a χ² goodness-of-fit test, and statistical and systematic errors, is compared with Onsager's exact solution. A pure power-law fit to a single lattice and multi-histogram reweighting are included as checks."
 authors:
   - given-names: "Camilo Andrés"
     family-names: "Rozo Lozano"
@@ -10,8 +10,8 @@ authors:
     email: rozol.ca555@gmail.com
 repository-code: "https://github.com/crozol/01-ising-bayesian"
 license: MIT
-version: "1.0.0"
-date-released: 2026-05-05
+version: "2.0.0"
+date-released: 2026-11-20
 keywords:
   - Ising model
   - Markov Chain Monte Carlo
