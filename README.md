@@ -6,19 +6,31 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24393848.svg)](https://doi.org/10.5281/zenodo.24393848)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/ising-bayesian-demo)
 
-**TL;DR** — Bayesian inference of the 2D Ising critical point from Monte Carlo data. A finite-size-scaling fit of the Binder cumulant and the magnetisation, on Wolff cluster data for L = 32, 64, 128, gives `Tc = 2.2691(1)(1)` (Onsager `2.26919`), `ν = 0.981(10)(20)` (exact `1`) and `β = 0.1220(15)(24)` (exact `1/8`), with statistical and systematic errors and flat priors on all three. The fit range is the widest that passes a χ² goodness-of-fit test (`Q = 0.22`), the systematic error is the spread of the variations that also pass it, and the statistical interval alone would exclude `β = 1/8` (Section 12). The systematic error leaves out corrections to scaling whose amplitude varies with `x`, which no χ² test can accept or reject on the reweighted curves: they move `β` up by as much as `0.004`, to 0.123–0.126 (Section 12). A first fit of a pure power law to a single lattice (L = 32) gives `Tc = 2.37` and a `β` near `1/8` only through two compensating errors: on the ordered side the simulation matches Onsager's exact magnetisation, but the power law is only its leading term; adding the first correction of Onsager's expansion, the same data give `β = 0.124 [0.122, 0.127]` (Section 11). Stack: NumPy · Numba JIT · ArviZ (PyMC 5 optional).
+Monte Carlo simulation of the 2D Ising model and Bayesian inference of its critical point, checked
+against Onsager's exact solution.
 
-A numerical experiment: simulate a grid of interacting magnetic spins, observe
-how its macroscopic state changes with temperature, and then try to recover the
-two numbers that govern that transition — the critical temperature `Tc` and the
-critical exponent `β` — from the noisy simulated data using Bayesian inference.
-Both numbers are known exactly for this system (Onsager, 1944), so the
-experiment has an unambiguous reference to validate against.
+**Summary**
 
-The document walks through the measurement and the analysis in the order you
-would actually perform them, without spoiling the outcome up front. Following
-along produces a physical intuition for the phase transition and a clean
-probabilistic estimate of its parameters.
+- **Result.** A joint finite-size-scaling fit of the Binder cumulant and the magnetisation, on Wolff
+  cluster data for L = 32, 64, 128 with flat priors, gives `Tc = 2.2691(1)(1)` (Onsager `2.26919`),
+  `ν = 0.981(10)(20)` (exact `1`) and `β = 0.1220(15)(24)` (exact `1/8`), with statistical and
+  systematic errors (Section 12).
+- **Fit range set by the data.** The window is the widest that passes a χ² goodness-of-fit test
+  (`Q = 0.22`); the systematic error is the spread of the variations that also pass it.
+- **What the error leaves out.** The statistical interval alone excludes `β = 1/8`. Corrections to
+  scaling whose amplitude varies with `x`, which no χ² test can accept or reject on the reweighted
+  curves, move `β` up by as much as `0.004`, to 0.123–0.126.
+- **Why finite-size scaling.** A pure power law fitted to one 32×32 lattice gives `Tc = 2.37`, and a
+  `β` near `1/8` only through two compensating errors. The simulation matches Onsager's exact
+  magnetisation; the power law is only its leading term, and with the first correction of Onsager's
+  expansion the same data give `β = 0.124 [0.122, 0.127]` (Section 11).
+- **Stack.** NumPy · Numba · ArviZ (PyMC 5 optional); every run is seeded and `python main.py` runs
+  the whole pipeline.
+
+![Finite-size scaling: Binder crossing and data collapse](figures/fss.png)
+
+The sections follow the order of the work: the simulation, a first Bayesian fit on one lattice, why
+it fails, and finite-size scaling on several lattices.
 
 ---
 
@@ -127,6 +139,16 @@ mean magnetization is close to `1`. Right: both orientations are present in
 roughly equal areas; the mean magnetization fluctuates around `0`. The
 transition between these two regimes is what the rest of this experiment
 characterizes quantitatively.
+
+**Context in the literature.**
+
+- The model is one of the few with a continuous transition solved exactly: Onsager (1944) derived
+  `Tc = 2/ln(1 + √2)`, and Yang (1952) the spontaneous magnetisation, which fixes `β = 1/8`.
+- Metropolis sampling (Metropolis et al., 1953) slows down near `Tc`: its autocorrelation time grows
+  as `L^z` with `z ≈ 2.17` (Hohenberg & Halperin, 1977; Nightingale & Blöte, 1996). Cluster
+  algorithms flip whole correlated domains and avoid it (Swendsen & Wang, 1987; Wolff, 1989).
+- On a finite lattice the transition is rounded. Finite-size scaling (Fisher & Barber, 1972) and the
+  Binder cumulant (Binder, 1981) turn the dependence on the lattice size into the estimator.
 
 ## 4 · The observable: magnetization per site
 
@@ -285,19 +307,18 @@ can only place them to within a grid step. Section 12 locates `Tc` precisely
 with several lattice sizes.
 
 **Why the peaks are ragged.** Unlike the energy, `χ` and `C` carry large, unequal
-error bars near the transition, and `χ` even shows a spurious secondary bump
-around `T ≈ 2.17`. This is not a second transition — it is *critical slowing
-down*. Near `Tc` the correlation length grows to the size of the lattice and the
-autocorrelation time of single-spin-flip Metropolis dynamics diverges as
-`τ ∝ ξ^z`, with a dynamic exponent `z ≈ 2.17` for the 2D Ising model
-(Hohenberg & Halperin 1977; Nightingale & Blöte 1996). The chain decorrelates so
-slowly there that a fixed-length run holds only a handful of independent samples,
-so variance-based estimators like `χ` and `C` turn noisy — which is exactly why
-their error bars balloon in the critical region while `⟨ε⟩` stays clean. The
-block-jackknife bars (Newman & Barkema 1999) make this honest: the secondary bump
-sits well within its own uncertainty. The standard cure is a cluster algorithm
-(Swendsen–Wang 1987; Wolff 1989), which updates whole correlated domains at
-once; Section 12 uses the Wolff algorithm for the finite-size-scaling data.
+error bars near the transition, and `χ` shows a spurious secondary bump around
+`T ≈ 2.17`. It is not a second transition but *critical slowing down*:
+
+- near `Tc` the correlation length reaches the size of the lattice, and the
+  autocorrelation time of single-spin-flip Metropolis dynamics grows as `τ ∝ ξ^z`,
+  with `z ≈ 2.17` (Hohenberg & Halperin 1977; Nightingale & Blöte 1996);
+- a fixed-length run then holds only a handful of independent samples, so
+  variance-based estimators like `χ` and `C` turn noisy while `⟨ε⟩` stays clean;
+- the block-jackknife bars (Newman & Barkema 1999) show it: the secondary bump sits
+  well within its own uncertainty;
+- the standard cure is a cluster algorithm (Swendsen–Wang 1987; Wolff 1989), which
+  updates whole correlated domains at once; Section 12 uses the Wolff algorithm.
 
 ## 8 · Quantitative analysis: Bayesian inference of Tc and β
 
@@ -488,18 +509,17 @@ data are right and that the failures above come from the functional form.
 The estimate that uses no exact input is the finite-size scaling of
 Section 12.
 
-The conclusion is that a single lattice cannot determine `β` from the leading
-power law alone. Close to `Tc`, where that power law holds, the finite lattice
-rounds the transition and leaves a `1/L` tail; far from `Tc`, where the
-lattice behaves like an infinite one, the leading term is not enough and the
-correction above is needed. The `β ≈ 0.09–0.10` of the
-full-range fit is a compromise between those two errors, and its proximity to
-`1/8` is partly luck. The `+0.1` offset in `Tc` is a finite-size effect only
-in that the `1/L` tail above `Tc` exists because the lattice is finite. It is
-not a shift of the transition: finite-size scaling of several lattices gives
-`Tc = 2.2691(1)(1)`, compatible with the exact value (Section 12). The
-offset comes from the model, which sets `M = 0` above `Tc` and cannot describe
-that tail; the fitted threshold moves up to absorb it.
+**Conclusion: one lattice cannot determine `β` from the leading power law alone.**
+
+- Close to `Tc`, where that power law holds, the finite lattice rounds the transition and
+  leaves a `1/L` tail.
+- Far from `Tc`, where the lattice behaves like an infinite one, the leading term is not
+  enough and the correction above is needed.
+- The `β ≈ 0.09–0.10` of the full-range fit is a compromise between those two errors; its
+  proximity to `1/8` is partly luck.
+- The `+0.1` offset in `Tc` is not a shift of the transition: finite-size scaling gives
+  `Tc = 2.2691(1)(1)` (Section 12). It comes from the model, which sets `M = 0` above `Tc`
+  and cannot describe the tail; the fitted threshold moves up to absorb it.
 
 ## 12 · Finite-size scaling: several lattice sizes
 
@@ -559,18 +579,19 @@ remaining five parameters are sampled with adaptive Metropolis (Haario,
 Saksman & Tamminen 2001), 4 chains × 10 000 draws, `R̂ ≤ 1.002`,
 `ESS_bulk > 2 600` for every parameter.
 
-**Fit window.** The expansion holds for small `|x|`, so the window is fixed in
-`x`, not in `T`: a fixed `T` window reaches `|x| ∝ L^(1/ν)`, twice as far on each
-doubling of `L` (`[2.23, 2.31]` reaches `|x| = 2.6` at `L = 64` and `5.2` at
-`L = 128`). Points are kept when `|T − T*| L^(1/ν₀) ≤ x_max`, with `T* = 2.2684`,
-the Binder crossing of `L = 64` and `128`, and `ν₀ = 1.04`, from the growth of
-the slope `dU/dT` at `T*` as `L^(1/ν)`; neither uses the exact values. The range
-of the fit (`x_max` and the smallest lattice `L_min`) is chosen by the classical
-goodness-of-fit test: the same model fitted by weighted least squares on the
-Monte Carlo errors alone, without discrepancy terms, gives `χ²_min` with
-`2N − 9` degrees of freedom for quadratic `f` and `g`, and the probability `Q`
-of a larger `χ²`; a fit passes when `Q > 0.05`. The errors in the table come
-from the curvature of `χ²` at its minimum (`Δχ² = 1`):
+**Fit window.**
+
+- The expansion holds for small `|x|`, so the window is fixed in `x`, not in `T`: a fixed `T`
+  window reaches twice as far in `x` on each doubling of `L` (`[2.23, 2.31]` reaches `|x| = 2.6` at
+  `L = 64` and `5.2` at `L = 128`).
+- Points are kept when `|T − T*| L^(1/ν₀) ≤ x_max`, with `T* = 2.2684` (the Binder crossing of
+  `L = 64` and `128`) and `ν₀ = 1.04` (from the growth of the slope `dU/dT` at `T*`); neither uses
+  the exact values.
+- The range (`x_max` and the smallest lattice `L_min`) is chosen by a goodness-of-fit test: the
+  same model fitted by weighted least squares on the Monte Carlo errors alone gives `χ²_min` with
+  `2N − 9` degrees of freedom and the probability `Q` of a larger `χ²`; a fit passes when
+  `Q > 0.05`.
+- The errors in the table come from the curvature of `χ²` at its minimum (`Δχ² = 1`):
 
 | Sizes | `\|x\| ≤` | Order of `f`, `g` | Points | `χ²/dof` | `Q` | `Tc` | `ν` | `β` |
 |---|---|---|---|---|---|---|---|---|
@@ -619,41 +640,37 @@ As a model-free check, the Binder curves of consecutive sizes cross at
 `2.2666(7)`, `2.2699(5)` and `2.2684(3)`; these straight-line interpolations
 between grid temperatures `0.01` apart scatter by more than their errors.
 
-**Corrections to scaling.** One explicit correction term does not account for
-the rejected fits (`scripts/scaling_corrections.py`). Adding `c · L^(−ω)` to both
-forms, each with its own amplitude, with `ω = 1` (the order of the corrections
-from the nonlinear dependence of the thermal scaling field on `T`, `L^(−1/ν)`;
-Aharony & Fisher 1983) or `ω = 2` (the leading corrections from irrelevant
-operators in the two-dimensional Ising model; Caselle et al. 2002), raises `Q`
-for `L = 16–128` with `|x| ≤ 1` from `8 × 10⁻⁴` to `0.017` and `0.015`, still
-below `0.05`, and leaves every window wider than `|x| ≤ 1` at `Q < 10⁻¹⁷`. On
-the accepted window the term moves `β` from `0.1217(10)` to `0.1245(37)`
-(`ω = 1`) and `0.1230(23)` (`ω = 2`), towards `1/8`, and `ν` from `0.980(7)` to
-`0.975(12)` and `0.977(10)`, not towards `1`; `Tc` moves by less than `0.0001`.
-The shifts of `β` are of the size of its systematic error already quoted
-(`0.0024`); those of `ν` are well within its own (`0.020`). Using `K = 1/T`
-instead of `T` in the scaling variable, which changes it at second order in
-`T − Tc`, moves `ν` by `−0.004` and `β` by `−0.0005` (`Q = 0.24`). A correction with a constant amplitude is
-therefore not enough; one whose amplitude varies with `x` would need more
-temperatures per size than the 2 to 7 inside the window.
+**Corrections to scaling.** One explicit correction term does not account for the rejected fits
+(`scripts/scaling_corrections.py`):
 
-**Reweighted curves.** With a grid of `0.01` in `T`, only 4 temperatures of
-`L = 64` and 2 of `L = 128` fall inside `|x| ≤ 1`. Multiple-histogram
-reweighting (Ferrenberg & Swendsen 1989; `src/reweight.py`) of the 15 runs of
-each size gives `<|m|>` and `U` at any temperature in the simulated range: the
-published chains, re-run with their seeds, are the same bit for bit and now
-save their energy and magnetisation series, and the reweighted values agree
-with the simulated points (`χ²/n` = 0.8–1.3 over the 15 temperatures of
-`L = 16` and `32`) with errors about four times smaller. Five points per size
-remove the limit of 2 temperatures at `L = 128`, but they also show why a
-goodness-of-fit test cannot choose between corrections on such curves:
-reweighted from the same runs, the points of one size fix its curvature and
-higher derivatives far more precisely than any truncated expansion describes
-them (the eigenvalues of their correlation matrix span 7 orders of magnitude),
-and the `χ²` with their full covariance rejects every polynomial order up to 5
-(`L = 32–128`, `|x| ≤ 1`: 1995 for 15 degrees of freedom at order 5). The fits
-below use the jackknife errors alone, with the errors of `Tc`, `ν` and `β` from
-refitting the whole curve of every jackknife sample (`src/fss_reweighted.py`):
+- Adding `c · L^(−ω)` to both forms, with `ω = 1` (the nonlinear dependence of the thermal scaling
+  field on `T`; Aharony & Fisher 1983) or `ω = 2` (irrelevant operators in the 2D Ising model;
+  Caselle et al. 2002), raises `Q` for `L = 16–128`, `|x| ≤ 1` from `8 × 10⁻⁴` to `0.017` and
+  `0.015`, still below `0.05`; every wider window stays at `Q < 10⁻¹⁷`.
+- On the accepted window the term moves `β` from `0.1217(10)` to `0.1245(37)` (`ω = 1`) and
+  `0.1230(23)` (`ω = 2`), towards `1/8`, and `ν` from `0.980(7)` to `0.975(12)` and `0.977(10)`;
+  `Tc` moves by less than `0.0001`. These shifts are of the size of the systematic errors already
+  quoted (`0.0024` for `β`, `0.020` for `ν`).
+- Using `K = 1/T` instead of `T` in the scaling variable moves `ν` by `−0.004` and `β` by `−0.0005`
+  (`Q = 0.24`).
+- A correction with a constant amplitude is therefore not enough; one whose amplitude varies with
+  `x` needs more temperatures per size than the 2 to 7 inside the window.
+
+**Reweighted curves.** With a grid of `0.01` in `T`, only 4 temperatures of `L = 64` and 2 of
+`L = 128` fall inside `|x| ≤ 1`.
+
+- Multiple-histogram reweighting (Ferrenberg & Swendsen 1989; `src/reweight.py`) of the 15 runs of
+  each size gives `<|m|>` and `U` at any temperature in the simulated range. The published chains,
+  re-run with their seeds, are the same bit for bit; the reweighted values agree with the simulated
+  points (`χ²/n` = 0.8–1.3 for `L = 16` and `32`) with errors about four times smaller. Five points
+  per size remove the limit of 2 temperatures at `L = 128`.
+- They also show why a goodness-of-fit test cannot choose between corrections on such curves:
+  reweighted from the same runs, the points of one size fix its curvature far more precisely than
+  any truncated expansion describes it (the eigenvalues of their correlation matrix span 7 orders of
+  magnitude), and the `χ²` with their full covariance rejects every polynomial order up to 5
+  (`L = 32–128`, `|x| ≤ 1`: 1995 for 15 degrees of freedom at order 5).
+- The fits below therefore use the jackknife errors alone, with the errors of `Tc`, `ν` and `β` from
+  refitting the whole curve of every jackknife sample (`src/fss_reweighted.py`):
 
 | Sizes | `\|x\| ≤` | Correction | `Tc` | `ν` | `β` |
 |---|---|---|---|---|---|
